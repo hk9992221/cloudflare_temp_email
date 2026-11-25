@@ -3,14 +3,16 @@ import { useRoute } from 'vue-router'
 
 import { useGlobalState } from '../../store'
 import { api } from '../../api'
-import { onBeforeUnmount, onMounted, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, watch } from 'vue';
 import { processItem, releaseMailAttachments } from '../../utils/email-parser'
+import { blockRemoteContent } from '../../utils/remote-content-policy'
 import { utcToLocalDate } from '../../utils';
 
 const { telegramApp, loading, useUTCDate } = useGlobalState()
 const route = useRoute()
 
 const curMail = ref({});
+const mailHtml = computed(() => blockRemoteContent(curMail.value.message, { allowRemoteImages: true }).html);
 let mailRequest = 0;
 watch(curMail, (_current, previous) => releaseMailAttachments(previous));
 
@@ -68,7 +70,8 @@ onBeforeUnmount(() => {
             <n-tag v-if="showEMailTo" type="info">
                 TO: {{ curMail.address }}
             </n-tag>
-            <iframe :srcdoc="curMail.message" style="margin-top: 10px;width: 100%; height: 100%;">
+            <iframe :srcdoc="mailHtml" sandbox="allow-same-origin allow-popups"
+                style="margin-top: 10px;width: 100%; height: 100%;">
             </iframe>
         </n-card>
     </div>
