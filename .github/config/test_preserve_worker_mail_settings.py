@@ -51,6 +51,7 @@ class WorkerMailSettingsTest(unittest.TestCase):
             "r2_buckets": [{"binding": "OTHER", "bucket_name": "unchanged"},
                            {"binding": "MAIL_STORAGE", "bucket_name": "previous"}],
             "vars": {"S3_BUCKET": "attachments", "MAIL_STORAGE_BACKEND": "d1",
+                     "ENABLE_TG_PUSH_ATTACHMENT": False,
                      "ENABLE_AI_EMAIL_EXTRACT": "true", "AI_EXTRACT_MODEL": "old"},
         }
         settings.preserve_mail_settings(config, [
@@ -58,6 +59,7 @@ class WorkerMailSettingsTest(unittest.TestCase):
              "jurisdiction": "eu"},
             {"name": "MAIL_STORAGE_BACKEND", "type": "plain_text", "text": "r2"},
             {"name": "MAIL_STORAGE_R2_GZIP", "type": "json", "json": False},
+            {"name": "ENABLE_TG_PUSH_ATTACHMENT", "type": "json", "json": True},
             {"name": "ENABLE_AI_EMAIL_EXTRACT", "type": "plain_text", "text": "false"},
             {"name": "AI_EXTRACT_MODEL", "type": "plain_text", "text": "selected"},
             {"name": "S3_BUCKET", "type": "plain_text", "text": "ignored"},
@@ -67,7 +69,8 @@ class WorkerMailSettingsTest(unittest.TestCase):
                            {"binding": "MAIL_STORAGE", "bucket_name": "attachments",
                             "jurisdiction": "eu"}],
             "vars": {"S3_BUCKET": "attachments", "MAIL_STORAGE_BACKEND": "r2",
-                     "MAIL_STORAGE_R2_GZIP": False, "ENABLE_AI_EMAIL_EXTRACT": "false",
+                     "MAIL_STORAGE_R2_GZIP": False, "ENABLE_TG_PUSH_ATTACHMENT": True,
+                     "ENABLE_AI_EMAIL_EXTRACT": "false",
                      "AI_EXTRACT_MODEL": "selected"},
         })
 
