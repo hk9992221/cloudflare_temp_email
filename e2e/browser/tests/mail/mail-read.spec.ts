@@ -33,6 +33,11 @@ test('keeps refresh unread and supports automatic and manual state changes', asy
 
     const readUpdates = Array.from({ length: 3 }, () => Promise.withResolvers<void>());
     const pendingReadUpdates = [...readUpdates];
+    const detailLoad = Promise.withResolvers<void>();
+    await page.route('**/api/mail/*', async route => {
+      await detailLoad.promise;
+      await route.continue();
+    });
     await page.route('**/api/mails/*/read', async route => {
       await pendingReadUpdates.shift()!.promise;
       await route.continue();
@@ -46,6 +51,7 @@ test('keeps refresh unread and supports automatic and manual state changes', asy
     await page.getByText(subject, { exact: true }).click();
     expect(await page.locator('.mail-list-unread').filter({ hasText: subject }).count()).toBe(0);
     expect(await page.locator('.n-spin-content--spinning').count()).toBe(0);
+    detailLoad.resolve();
     const more = page.getByRole('button', { name: 'More actions', exact: true });
     await more.click();
     await expect(page.getByRole('button', { name: 'Mark as Unread' })).not.toHaveClass(/n-button--loading/);
