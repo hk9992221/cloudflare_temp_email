@@ -15,6 +15,8 @@
 
 ### Bug Fixes
 
+- fix: |Telegram Mini App| Use Webmail's HTML sanitizer and iframe sandbox for email bodies.
+
 - fix: |Mail Attachments| Display the downloaded byte size, open original EML lazily, and preserve Telegram attachment bytes with a failure notice.
 
 - fix: |Deployment| Preserve the live Cloudflare mail storage binding and settings during backend Actions deployments.

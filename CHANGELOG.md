@@ -15,6 +15,8 @@
 
 ### Bug Fixes
 
+- fix: |Telegram 小程序| 使用 Webmail 的 HTML 安全处理和沙箱呈现邮件正文。
+
 - fix: |邮件附件| 按真实文件字节显示大小，打开邮件时读取原始 EML，Telegram 保留附件原件并提示推送失败。
 
 - fix: |部署| 后端 Actions 发布时沿用 Cloudflare 当前的邮件存储绑定及运行设置。
