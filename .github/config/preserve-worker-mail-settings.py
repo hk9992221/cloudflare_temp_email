@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 MAIL_VARS = (
     "MAIL_STORAGE_BACKEND",
     "MAIL_STORAGE_R2_GZIP",
+    "ENABLE_TG_PUSH_ATTACHMENT",
     "ENABLE_AI_EMAIL_EXTRACT",
     "AI_EXTRACT_MODEL",
 )
