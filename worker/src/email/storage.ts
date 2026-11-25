@@ -1,7 +1,7 @@
 import { Context } from "hono";
 import { createMimeMessage } from "mimetext";
 
-import { compressText } from "../gzip";
+import { compressMail } from "../gzip";
 import { getBooleanValue } from "../utils";
 import { commonParseMail } from "../utils/mail_parser";
 import {
@@ -41,7 +41,8 @@ export const storeRawMail = async (
         return storeR2Mail(env, source, address, messageId, mail);
     }
     const raw = mail.rawEmail;
-    const gzipEnabled = getBooleanValue(env.ENABLE_MAIL_GZIP);
+    const requiresBinary = mail.rawBytes !== undefined && needsBinaryStorage(mail.rawEmail, mail.rawBytes);
+    const gzipEnabled = requiresBinary || getBooleanValue(env.ENABLE_MAIL_GZIP);
     const readStatusEnabled = getBooleanValue(env.ENABLE_MAIL_READ_STATUS);
     const requiredColumns: string[] = [];
     if (gzipEnabled) requiredColumns.push('raw_blob');
@@ -52,11 +53,14 @@ export const storeRawMail = async (
         tableColumns = await getRawMailTableColumns(env, requiredColumns);
     }
 
+    if (requiresBinary && !tableColumns.has('raw_blob')) throw new MailStorageError('MAIL_STORAGE_SCHEMA_REQUIRED');
+
     let rawBlob: ArrayBuffer | undefined;
     if (gzipEnabled && tableColumns.has('raw_blob')) {
         try {
-            rawBlob = await compressText(raw);
+            rawBlob = await compressMail(mail.rawBytes ?? raw);
         } catch (error) {
+            if (requiresBinary) throw new MailStorageError('MAIL_STORAGE_GZIP_FAILED');
             console.error("gzip compression failed, falling back to plaintext", error);
         }
     }
@@ -80,6 +84,18 @@ export const storeRawMail = async (
     return env.DB.prepare(
         `INSERT INTO raw_mails (source, address, raw, message_id, is_unread) VALUES (?, ?, ?, ?, 1)`
     ).bind(source, address, raw, messageId).run();
+}
+
+function needsBinaryStorage(text: string, bytes: ArrayBuffer): boolean {
+    if (!text.includes('\uFFFD')) return false;
+    try {
+        new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
+        return false;
+    } catch {
+        // D1 TEXT cannot represent invalid UTF-8 bytes. Use the existing
+        // compressed BLOB field even when compression is disabled for text.
+        return true;
+    }
 }
 
 async function storeR2Mail(

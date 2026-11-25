@@ -32,7 +32,6 @@ const SendMail = defineAsyncComponent(() => {
 
 const { t } = useScopedI18n('views.Index')
 
-const fetchMailDetail = id => api.fetch(`/api/mail/${id}`, { showLoading: false });
 const fetchRawMail = id => api.fetch(`/api/mail/${id}?download=eml`,
     { showLoading: false, responseType: 'blob' });
 
@@ -140,7 +139,7 @@ onMounted(() => {
           <MailBox :key="mailBoxKey" :showEMailTo="false" :showReply="openSettings.enableSendMail" :showSaveS3="openSettings.isS3Enabled"
             :saveToS3="saveToS3" :enableUserDeleteEmail="openSettings.enableUserDeleteEmail"
             :fetchMailData="fetchMailData"
-            :fetchMailDetail="fetchMailDetail" :fetchRawMail="fetchRawMail" :deleteMail="deleteMail" :showFilterInput="true"
+            :fetchRawMail="fetchRawMail" :deleteMail="deleteMail" :showFilterInput="true"
             :enableMailReadStatus="openSettings.enableMailReadStatus" :updateMailReadStatus="updateMailReadStatus" />
         </n-tab-pane>
         <n-tab-pane v-if="openSettings.enableSendMail" name="sendbox" :tab="t('sendbox')">

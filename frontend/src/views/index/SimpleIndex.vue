@@ -15,7 +15,7 @@ import { useGlobalState } from '../../store'
 import { api } from '../../api'
 import Login from '../common/Login.vue'
 import AccountSettings from './AccountSettings.vue'
-import { processItem } from '../../utils/email-parser'
+import { processItem, releaseMailAttachments } from '../../utils/email-parser'
 import MailContentRenderer from '../../components/MailContentRenderer.vue'
 import AddressSelect from '../../components/AddressSelect.vue'
 import AddressCredentialModal from '../../components/AddressCredentialModal.vue'
@@ -27,6 +27,8 @@ const message = useMessage()
 const currentPage = ref(1)
 const totalCount = ref(0)
 const currentMail = ref(null)
+let mailRequest = 0
+watch(currentMail, (_current, previous) => releaseMailAttachments(previous))
 const showAccountSettingsCard = ref(false)
 const currentAutoRefreshInterval = ref(60)
 const timer = ref(null)
@@ -48,12 +50,18 @@ const fetchRawMail = id => api.fetch(`/api/mail/${id}?download=eml`, { responseT
 // 获取邮件数据
 const fetchMails = async () => {
     if (!settings.value.address) return
+    const request = ++mailRequest
     try {
-        const { results, count } = await api.fetch(`/api/mails?limit=1&offset=${currentPage.value - 1}`)
+        const { results, count } = await api.fetch(`/api/mails?summary=true&limit=1&offset=${currentPage.value - 1}`)
         totalCount.value = count > 0 ? count : totalCount.value;
-        const rawMail = results && results.length > 0 ? results[0] : null
-        const rawBytes = rawMail?.raw.includes('�') ? await (await fetchRawMail(rawMail.id)).arrayBuffer() : undefined;
-        currentMail.value = rawMail ? await processItem(rawMail, rawBytes) : null
+        if (request !== mailRequest) return
+        const row = results?.[0];
+        const mail = row ? await processItem(row, await (await fetchRawMail(row.id)).arrayBuffer()) : null;
+        if (request !== mailRequest) {
+            releaseMailAttachments(mail);
+            return;
+        }
+        currentMail.value = mail;
         return true
     } catch (error) {
         console.error('Failed to fetch mails:', error)
@@ -145,6 +153,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+    mailRequest++;
+    releaseMailAttachments(currentMail.value);
     clearInterval(timer.value)
 })
 </script>

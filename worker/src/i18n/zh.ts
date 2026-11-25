@@ -178,6 +178,7 @@ const messages: LocaleMessages = {
     TgCredentialMsg: "凭证:",
     TgNoSenderMsg: "无发件人",
     TgMsgTooLongMsg: "消息过长请到 mini app 查看",
+    TgAttachmentUploadFailedMsg: "{count} 个附件未能推送。请到 Webmail 下载原始附件。",
     TgParseFailedViewInAppMsg: "解析失败，请打开 mini app 查看",
     TgMaxAddressReachedMsg: "绑定地址数量已达上限",
     TgMaxAddressReachedCleanMsg: "绑定地址数量已达上限, 请先 /cleaninvalidaddress",

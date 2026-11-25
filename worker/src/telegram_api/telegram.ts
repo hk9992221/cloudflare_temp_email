@@ -503,7 +503,16 @@ export async function sendMailToTelegram(
         // send attachments via native fetch (telegraf multipart upload is incompatible with CF Workers)
         if (getBooleanValue(c.env.ENABLE_TG_PUSH_ATTACHMENT) && attachments.length > 0) {
             const caption = `From: ${parsedEmailContext.parsedEmail?.sender || ""}\nSubject: ${parsedEmailContext.parsedEmail?.subject || ""}`;
-            await sendTelegramAttachments(c.env.TELEGRAM_BOT_TOKEN, targetUserId, attachments, caption);
+            const failed = await sendTelegramAttachments(c.env.TELEGRAM_BOT_TOKEN, targetUserId, attachments, caption);
+            if (failed > 0) {
+                try {
+                    await bot.telegram.sendMessage(targetUserId, msgs.TgAttachmentUploadFailedMsg.replace('{count}', String(failed)), {
+                        ...Markup.inlineKeyboard([...buttons])
+                    });
+                } catch {
+                    console.warn("Telegram attachment failure notice could not be sent");
+                }
+            }
         }
     };
 
@@ -514,7 +523,7 @@ export async function sendMailToTelegram(
         }
     }
 
-    if (userId) {
+    if (userId && !(globalPush || []).some(id => String(id) === userId)) {
         const userMsgs = await getTgMessages(c, undefined, userId);
         await buildAndSend(userId, userMsgs);
     }

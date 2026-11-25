@@ -11,6 +11,35 @@ Telegram.prototype.callApi = function (this: Telegram, ...args: Parameters<typeo
     return Promise.resolve({ message_id: calls.length });
 } as typeof callApi;
 
+const nativeFetch = globalThis.fetch;
+const telegramUploadFailure = new AsyncLocalStorage<'http' | 'network' | 'api' | undefined>();
+globalThis.fetch = async (input, init) => {
+    const calls = telegramRecording.getStore();
+    const url = typeof input === 'string' ? input : String(input);
+    const testBot = 'https://api.telegram.org/bote2e-record-only-token/';
+    if (!calls || !url.startsWith(testBot)) return nativeFetch(input, init);
+
+    const form = init?.body;
+    if (!(form instanceof FormData)) throw new Error('Expected a Telegram multipart form');
+    const files = [];
+    for (const [, entry] of form) {
+        if (typeof entry === 'string') continue;
+        const digest = await crypto.subtle.digest('SHA-256', await entry.arrayBuffer());
+        files.push({ name: entry.name, type: entry.type, size: entry.size,
+            sha256: Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('') });
+    }
+    const method = url.slice(testBot.length);
+    const media = form.get('media');
+    calls.push({ method, payload: { chat_id: form.get('chat_id'), files,
+        media: typeof media === 'string' ? JSON.parse(media) : undefined } });
+    switch (telegramUploadFailure.getStore()) {
+        case 'network': throw new TypeError('Simulated upstream transport failure');
+        case 'http': return Response.json({ ok: false, description: 'Simulated rejection' }, { status: 400 });
+        case 'api': return Response.json({ ok: false, description: 'Simulated rejection' });
+        default: return Response.json({ ok: true, result: {} });
+    }
+};
+
 // Direct DB insert — bypasses the email() handler.
 const seedMail = async (request: Request, env: Bindings) => {
     const { address, source, raw, message_id, created_at, address_updated_at, address_created_at } = await request.json<{
@@ -45,11 +74,12 @@ const seedMail = async (request: Request, env: Bindings) => {
 // Exercises the real email() handler with a mock ForwardableEmailMessage.
 const receiveMail = async (request: Request, env: Bindings, ctx: ExecutionContext) => {
     const { from, to, raw, raw_base64, ai_extract_result, extract_mode, forward_address_list, subdomain_forward_address_list,
-        record_telegram, record_another_worker } = await request.json<{
+        record_telegram, record_another_worker, telegram_attachments, telegram_upload_failure } = await request.json<{
         from: string; to: string; raw: string; raw_base64?: string; ai_extract_result?: unknown; extract_mode?: string;
         forward_address_list?: string[];
         subdomain_forward_address_list?: SubdomainForwardAddressList[];
         record_telegram?: boolean; record_another_worker?: boolean;
+        telegram_attachments?: boolean; telegram_upload_failure?: 'http' | 'network' | 'api';
     }>();
     if (!from || !to || !raw) {
         return new Response("from, to and raw are required", { status: 400 });
@@ -117,9 +147,12 @@ const receiveMail = async (request: Request, env: Bindings, ctx: ExecutionContex
     const telegramCalls: { method: string; payload: unknown }[] = [];
     const workerCalls: unknown[] = [];
     await telegramRecording.run(record_telegram ? telegramCalls : undefined,
-        () => emailHandler(mockMessage, {
+        () => telegramUploadFailure.run(telegram_upload_failure, () => emailHandler(mockMessage, {
             ...emailEnv, DB,
-            ...(record_telegram ? { TELEGRAM_BOT_TOKEN: 'e2e-record-only-token' } : {}),
+            ...(record_telegram ? {
+                TELEGRAM_BOT_TOKEN: 'e2e-record-only-token',
+                ...(telegram_attachments === undefined ? {} : { ENABLE_TG_PUSH_ATTACHMENT: telegram_attachments }),
+            } : {}),
             ...(record_another_worker ? {
                 ENABLE_ANOTHER_WORKER: true,
                 ANOTHER_WORKER_LIST: [{ binding: 'TEST_WORKER', method: 'rpcEmail', keywords: ['Original body'] }],
@@ -127,7 +160,7 @@ const receiveMail = async (request: Request, env: Bindings, ctx: ExecutionContex
             } : {}),
             ...(forward_address_list === undefined ? {} : { FORWARD_ADDRESS_LIST: forward_address_list }),
             ...(subdomain_forward_address_list === undefined ? {} : { SUBDOMAIN_FORWARD_ADDRESS_LIST: subdomain_forward_address_list }),
-        }, ctx));
+        }, ctx)));
 
     return Response.json({
         success: !state.rejected,

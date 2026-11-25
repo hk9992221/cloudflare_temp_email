@@ -11,6 +11,7 @@ import { remove_attachment_if_need } from "./check_attachment";
 import { extractEmailInfo } from "./ai_extract";
 import { forwardEmail } from "./forward";
 import { EmailRuleSettings } from "../models";
+import { decodeMailBytes } from "../gzip";
 import { CONSTANTS } from "../constants";
 import { deleteRawMail, storeRawMail } from "./storage";
 import { configuredBackend, MailStorageError, MAX_RAW_MAIL_BYTES, readBounded } from "./storage/r2";
@@ -28,13 +29,12 @@ async function receiveEmail(
     }
     const parsedEmailContext: ParsedEmailContext = { rawEmail: '' };
     try {
-        if (configuredBackend(env) === 'r2') {
-            if (message.rawSize > MAX_RAW_MAIL_BYTES) throw new MailStorageError('MAIL_STORAGE_SIZE_LIMIT');
-            parsedEmailContext.rawBytes = await readBounded(message.raw, MAX_RAW_MAIL_BYTES);
-            parsedEmailContext.rawEmail = new TextDecoder().decode(parsedEmailContext.rawBytes);
-        } else {
-            parsedEmailContext.rawEmail = await new Response(message.raw).text();
-        }
+        const useR2 = configuredBackend(env) === 'r2';
+        if (useR2 && message.rawSize > MAX_RAW_MAIL_BYTES) throw new MailStorageError('MAIL_STORAGE_SIZE_LIMIT');
+        parsedEmailContext.rawBytes = useR2
+            ? await readBounded(message.raw, MAX_RAW_MAIL_BYTES)
+            : await new Response(message.raw).arrayBuffer();
+        parsedEmailContext.rawEmail = decodeMailBytes(parsedEmailContext.rawBytes);
     } catch (error) {
         rejectStorageFailure(message, error);
         return;

@@ -1,49 +1,73 @@
-const TG_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB Telegram Bot API limit
+// Telegram's hosted Bot API documents a 50 MB upload limit for documents.
+const TG_MAX_FILE_SIZE = 50 * 1024 * 1024;
+const MEDIA_GROUP_SIZE = 6;
+
+function attachmentBatches(files: ParsedEmailAttachment[]): ParsedEmailAttachment[][] {
+    const media: ParsedEmailAttachment[] = [];
+    const documents: ParsedEmailAttachment[] = [];
+    for (const file of files) {
+        if (/^(image|video|audio)\//i.test(file.mimeType)) media.push(file);
+        else documents.push(file);
+    }
+
+    const batches: ParsedEmailAttachment[][] = [];
+    let offset = 0;
+    while (offset < media.length) {
+        // Leave at least two items for the final group when possible.
+        const size = media.length - offset === MEDIA_GROUP_SIZE + 1 ? MEDIA_GROUP_SIZE - 1 : MEDIA_GROUP_SIZE;
+        batches.push(media.slice(offset, offset + size));
+        offset += size;
+    }
+    return batches.concat(documents.map(file => [file]));
+}
 
 export async function sendTelegramAttachments(
     botToken: string,
     chatId: string,
     attachments: ParsedEmailAttachment[],
     caption: string
-) {
-    try {
-        const validAttachments = attachments.filter(att => {
-            if (att.content.byteLength > TG_MAX_FILE_SIZE) {
-                console.log(`Skipping attachment ${att.filename}: ${(att.content.byteLength / 1024 / 1024).toFixed(1)}MB exceeds 50MB limit`);
-                return false;
-            }
-            return true;
-        });
-        if (validAttachments.length === 0) return;
+): Promise<number> {
+    const uploadable = attachments.filter(file => file.content.byteLength <= TG_MAX_FILE_SIZE);
+    let failed = attachments.length - uploadable.length;
+    if (failed > 0) console.warn("Telegram attachment upload skipped: file size limit");
 
-        const batchSize = 6;
-        for (let i = 0; i < validAttachments.length; i += batchSize) {
-            const batch = validAttachments.slice(i, i + batchSize);
-            const formData = new FormData();
-            const media: { type: string; media: string; caption?: string }[] = [];
-            for (let j = 0; j < batch.length; j++) {
-                const att = batch[j];
-                const attachKey = `file${j}`;
-                media.push({
-                    type: 'document',
-                    media: `attach://${attachKey}`,
-                    ...(i === 0 && j === 0 ? { caption } : {}),
-                });
-                const blob = new Blob([att.content], { type: 'application/octet-stream' });
-                formData.append(attachKey, blob, att.filename || `attachment_${j}`);
-            }
-            formData.append('chat_id', chatId);
-            formData.append('media', JSON.stringify(media));
-            const res = await fetch(
-                `https://api.telegram.org/bot${botToken}/sendMediaGroup`,
-                { method: 'POST', body: formData }
+    const firstCaption = caption.slice(0, 1024);
+    for (const [index, batch] of attachmentBatches(uploadable).entries()) {
+        const single = batch.length === 1;
+        const form = new FormData();
+        form.append('chat_id', chatId);
+
+        const media = batch.map((file, slot) => {
+            const field = single ? 'document' : `file${slot}`;
+            form.append(field, new Blob([file.content], {
+                type: file.mimeType || 'application/octet-stream'
+            }), file.filename || 'attachment');
+            return {
+                type: 'document',
+                media: `attach://${field}`,
+                ...(index === 0 && slot === 0 ? { caption: firstCaption } : {}),
+            };
+        });
+        if (!single) form.append('media', JSON.stringify(media));
+        else if (index === 0) form.append('caption', firstCaption);
+
+        const method = single ? 'sendDocument' : 'sendMediaGroup';
+        try {
+            const response = await fetch(
+                `https://api.telegram.org/bot${botToken}/${method}`,
+                { method: 'POST', body: form },
             );
-            if (!res.ok) {
-                const text = await res.text();
-                console.error(`Failed to send attachment batch ${i / batchSize + 1}: ${res.status} ${text.substring(0, 200)}`);
+            if (response.ok) {
+                const result = await response.json<{ ok?: boolean }>();
+                if (result?.ok === true) continue;
+            } else {
+                await response.body?.cancel().catch(() => {});
             }
+            console.warn("Telegram attachment upload rejected", response.status);
+        } catch {
+            console.warn("Telegram attachment upload failed");
         }
-    } catch (e) {
-        console.error("Failed to send telegram attachments:", e);
+        failed += batch.length;
     }
+    return failed;
 }

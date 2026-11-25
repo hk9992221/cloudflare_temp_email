@@ -5,9 +5,16 @@
 
 import { RawMailRow } from "./models";
 
-export async function compressText(text: string): Promise<ArrayBuffer> {
-    const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'));
+export async function compressMail(raw: string | ArrayBuffer): Promise<ArrayBuffer> {
+    const stream = new Blob([raw]).stream().pipeThrough(new CompressionStream('gzip'));
     return new Response(stream).arrayBuffer();
+}
+
+export function decodeMailBytes(raw: ArrayBuffer): string {
+    const bytes = new Uint8Array(raw);
+    const text = new TextDecoder().decode(bytes);
+    // Preserve a leading BOM when round-tripping through D1 plaintext or JSON.
+    return bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? '\uFEFF' + text : text;
 }
 
 export async function decompressBlob(buffer: ArrayBuffer): Promise<string> {

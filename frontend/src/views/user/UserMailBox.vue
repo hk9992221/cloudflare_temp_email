@@ -20,7 +20,6 @@ const queryMail = () => {
     mailBoxKey.value = Date.now();
 }
 
-const fetchMailDetail = id => api.fetch(`/user_api/mails/${id}`, { showLoading: false });
 const fetchRawMail = id => api.fetch(`/user_api/mails/${id}?download=eml`,
     { showLoading: false, responseType: 'blob' });
 
@@ -74,7 +73,7 @@ onMounted(() => {
         </n-input-group>
         <div style="margin-top: 10px;"></div>
         <MailBox :key="mailBoxKey" :enableUserDeleteEmail="openSettings.enableUserDeleteEmail" :fetchMailData="fetchMailData"
-            :fetchMailDetail="fetchMailDetail" :fetchRawMail="fetchRawMail"
+            :fetchRawMail="fetchRawMail"
             :deleteMail="deleteMail" :showFilterInput="true" />
     </div>
 </template>

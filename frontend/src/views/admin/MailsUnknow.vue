@@ -2,7 +2,6 @@
 import { api } from '../../api'
 import MailBox from '../../components/MailBox.vue';
 
-const fetchMailDetail = id => api.fetch(`/admin/mails/${id}`, { showLoading: false });
 const fetchRawMail = id => api.fetch(`/admin/mails/${id}?download=eml`,
     { showLoading: false, responseType: 'blob' });
 
@@ -22,6 +21,6 @@ const deleteMail = async (curMailId) => {
 <template>
     <div style="margin-top: 10px;">
         <MailBox :enableUserDeleteEmail="true" :fetchMailData="fetchMailUnknowData"
-            :fetchMailDetail="fetchMailDetail" :fetchRawMail="fetchRawMail" :deleteMail="deleteMail" />
+            :fetchRawMail="fetchRawMail" :deleteMail="deleteMail" />
     </div>
 </template>
