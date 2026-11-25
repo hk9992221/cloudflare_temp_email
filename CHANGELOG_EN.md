@@ -15,6 +15,8 @@
 
 ### Bug Fixes
 
+- fix: |Deployment| Preserve the live Cloudflare mail storage binding and settings during backend Actions deployments.
+
 ### Improvements
 
 - refactor: |Mail Parsing| Extract backend mail parsing into a shared module without changing parsing behavior or WASM selection

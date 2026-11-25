@@ -15,6 +15,8 @@
 
 ### Bug Fixes
 
+- fix: |部署| 后端 Actions 发布时沿用 Cloudflare 当前的邮件存储绑定及运行设置。
+
 ### Improvements
 
 - refactor: |邮件解析| 将后端邮件解析提取为独立公共模块，保持解析行为和 WASM 切换方式不变
