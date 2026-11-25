@@ -114,6 +114,13 @@ const openMail = async (mail, markRead = true) => {
   const request = ++detailRequest;
   curMail.value = mail;
   try {
+    if (markRead && mail.is_unread === 1 && props.enableMailReadStatus) {
+      mail.is_unread = 0;
+      void props.updateMailReadStatus(mail.id, false).catch(() => {
+        mail.is_unread = 1;
+        if (curMail.value?.id === mail.id) curMail.value.is_unread = 1;
+      });
+    }
     const needsDetail = mail.raw === undefined && props.fetchMailDetail;
     const mayNeedBytes = mail.raw?.includes('�') && props.fetchRawMail;
     if (needsDetail || mayNeedBytes) {
@@ -132,13 +139,6 @@ const openMail = async (mail, markRead = true) => {
       }
       curMail.value = { ...parsed, is_unread: mail.is_unread };
     }
-    if (!markRead || mail.is_unread !== 1 || !props.enableMailReadStatus) return;
-    mail.is_unread = 0;
-    curMail.value.is_unread = 0;
-    await props.updateMailReadStatus(mail.id, false).catch(() => {
-      mail.is_unread = 1;
-      if (curMail.value?.id === mail.id) curMail.value.is_unread = 1;
-    });
   } catch (error) {
     if (request !== detailRequest) return;
     closeMail();
