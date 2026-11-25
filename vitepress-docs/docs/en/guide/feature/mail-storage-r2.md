@@ -6,7 +6,7 @@ R2 mode stores the complete, post-processing MIME message in a private EML objec
 
 1. Back up D1. Start in a staging environment with the dual-read Worker and the default `d1` write mode.
 2. Open Admin → Quick Setup → Database and upgrade to schema `v0.0.12`. The admin upgrade can be repeated or resumed. The SQL file `db/2026-11-25-mail-storage-r2.sql` is a one-time alternative for an unmodified `v0.0.11` database. Use the admin upgrade for a partial migration.
-3. Add the native binding to the actual Worker configuration, including `BACKEND_TOML` for GitHub Actions deployments. Keep the existing D1 and KV bindings and secrets. Keep the bucket private.
+3. In the Cloudflare dashboard, bind the private bucket to the Worker as `MAIL_STORAGE`. The backend GitHub Actions workflow carries over the binding and settings from the active Worker version. Other deployment configuration continues to come from `BACKEND_TOML`. For the first deployment or direct Wrangler deployments, you can use the TOML example below.
 4. Use Mail storage → Check configuration to verify the schema and bucket. Deploy the compatible Worker before the Pages frontend.
 5. Switch writes to `r2`. Test plain text, HTML, inline images, PDF attachments, and a message over 2 MB. Check the existing attachment stripping settings if large attachments should be kept.
 6. Preview and opt in to historical migration only after new-message validation.
@@ -20,6 +20,8 @@ MAIL_STORAGE_R2_GZIP = true
 binding = "MAIL_STORAGE"
 bucket_name = "private-mail-attachments"
 ```
+
+The backend workflow also carries over dashboard changes to the write mode, gzip setting, and AI extraction switch and model.
 
 Keep the `_internal/raw-mails/v1/` prefix reserved for the Worker and outside any expiry rule. Existing S3 attachment bookmarks can share the bucket under their mailbox prefixes.
 

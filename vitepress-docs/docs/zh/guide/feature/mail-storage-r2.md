@@ -6,7 +6,7 @@ R2 模式将完整的 MIME 原文存为私有 EML 对象。D1 保存邮箱权限
 
 1. 备份 D1。准备独立测试环境，先部署支持 D1 和 R2 双读取的 Worker，使用默认的 `d1` 写入模式。
 2. 在「管理后台 → 快速设置 → 数据库」执行 Schema 升级，确认版本为 `v0.0.12`。该入口可以重复执行。使用 Wrangler 管理数据库时，`db/2026-11-25-mail-storage-r2.sql` 适用于一次性升级原样的 `v0.0.11`，部分升级或重复执行请使用管理后台。新数据库可以通过管理后台初始化，或执行新的 `db/schema.sql` 后再由管理后台登记版本。
-3. 在 Worker 绑定私有 R2 Bucket。GitHub Actions 部署读取现有 `BACKEND_TOML`，因此在实际使用的 Wrangler 配置中加入 Binding。保留现有 Secrets、D1 和 KV Binding。设置里的 `[vars]` 须沿用原区块。
+3. 在 Cloudflare 控制台为 Worker 添加私有 R2 Bucket，绑定名为 `MAIL_STORAGE`。部署已有 Worker 时，后端 Actions 沿用正在服务的版本的邮件存储绑定和设置，`BACKEND_TOML` 继续提供其他部署配置。首次部署或直接使用 Wrangler 时，也可以用下方的 TOML 配置。
 4. 在「邮件存储管理」执行「检查配置」，确认 Schema 就绪且 R2 可访问。部署新 Pages 前端之前先部署兼容的 Worker。
 5. 将 `MAIL_STORAGE_BACKEND` 切到 `r2`。用纯文本、HTML、内嵌图片、PDF 及超过 2 MB 的测试邮件核对收件、原文下载、附件下载、Telegram 和 Webhook。希望保留大邮件附件时，检查原有 `REMOVE_EXCEED_SIZE_ATTACHMENT` 和 `REMOVE_ALL_ATTACHMENT` 配置。
 6. 完成新邮件验证之后，再决定是否迁移 D1 中的历史邮件。
@@ -20,6 +20,8 @@ MAIL_STORAGE_R2_GZIP = true
 binding = "MAIL_STORAGE"
 bucket_name = "private-mail-attachments"
 ```
+
+在控制台调整写入模式或 Gzip 设置后，下一次后端 Actions 会沿用这些设置。Actions 还保留当前的 AI 提取开关和模型。
 
 保持 Bucket 私有，保留 `_internal/raw-mails/v1/` 命名空间供应用管理。使用同一 Bucket 手动收藏附件时，原有按邮箱划分的路径继续有效。不要在该内部前缀上配置会自动移除邮件原文的生命周期策略。
 
