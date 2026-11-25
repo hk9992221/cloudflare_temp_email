@@ -1,83 +1,106 @@
 import PostalMime from 'postal-mime';
 
 function humanFileSize(size) {
-    const i = size === 0 ? 0 : Math.floor(Math.log(size) / Math.log(1024));
-    return parseFloat((size / Math.pow(1024, i)).toFixed(2)) + ' ' + ['B', 'KB', 'MB', 'GB', 'TB'][i];
+    const unit = size === 0 ? 0 : Math.floor(Math.log(size) / Math.log(1024));
+    return parseFloat((size / Math.pow(1024, unit)).toFixed(2)) + ' ' + ['B', 'KB', 'MB', 'GB', 'TB'][unit];
 }
 
-export async function processItem(item, rawBytes) {
-    // Try to parse the email using mail-parser-wasm
-    item.originalSource = item.source;
-    if (rawBytes) item.rawBytes = rawBytes;
-    if (!rawBytes) try {
-        const { parse_message } = await import('mail-parser-wasm');
-        const parsedEmail = parse_message(item.raw);
-        item.source = parsedEmail.sender || item.source;
-        item.subject = parsedEmail.subject || '';
-        item.message = parsedEmail.body_html || parsedEmail.text || '';
-        item.text = parsedEmail.text || '';
-        item.attachments = parsedEmail.attachments?.map((a_item) => {
-            const blob = new Blob(
-                [a_item.content],
-                { type: a_item.content_type || 'application/octet-stream' }
-            );
-            const blob_url = URL.createObjectURL(blob);
-            if (a_item.content_id && a_item.content_id.length > 0) {
-                item.message = item.message.replace(`cid:${a_item.content_id}`, blob_url);
+async function parseMail(raw, rawBytes) {
+    if (rawBytes === undefined) {
+        try {
+            const { parse_message } = await import('mail-parser-wasm');
+            const parsed = parse_message(raw);
+            if (parsed.subject && (parsed.body_html || parsed.text)) {
+                return {
+                    sender: parsed.sender,
+                    subject: parsed.subject,
+                    html: parsed.body_html,
+                    text: parsed.text,
+                    attachments: parsed.attachments?.map(file => ({
+                        // WASM getters are prototype properties.
+                        content: file.content,
+                        filename: file.filename,
+                        mimeType: file.content_type,
+                        contentId: file.content_id,
+                    })),
+                };
             }
-            return {
-                id: a_item.content_id || Math.random().toString(36).substring(2, 15),
-                filename: a_item.filename || a_item.content_id || "",
-                size: humanFileSize(a_item.content?.length || 0),
-                url: blob_url,
-                blob: blob
-            }
-        }) || [];
-    } catch (error) {
-        console.log('Error parsing email with mail-parser-wasm');
-        console.error(error);
-    }
-    if (!rawBytes && item.subject && item.subject.length > 0 && item.message && item.message.length > 0) {
-        return item;
-    }
-    // Fallback to PostalMime
-    try {
-        const parsedEmail = await PostalMime.parse(rawBytes ?? item.raw);
-        item.source = parsedEmail.from?.address || item.source;
-        if (parsedEmail.from?.address && parsedEmail.from.name) {
-            item.source = `${parsedEmail.from.name} <${parsedEmail.from.address}>`;
+        } catch {
+            // PostalMime is also used when the WASM bundle cannot load.
         }
-        item.subject = parsedEmail.subject || 'No Subject';
-        item.message = parsedEmail.html || parsedEmail.text || item.raw;
-        item.text = parsedEmail.text || '';
-        item.attachments = parsedEmail.attachments?.map((a_item) => {
-            const blob = new Blob(
-                [a_item.content],
-                { type: a_item.mimeType || 'application/octet-stream' }
-            );
-            const blob_url = URL.createObjectURL(blob)
-            if (a_item.contentId && a_item.contentId.length > 0) {
-                item.message = item.message.replace(`cid:${a_item.contentId}`, blob_url);
-            }
-            return {
-                id: a_item.contentId || Math.random().toString(36).substring(2, 15),
-                filename: a_item.filename || a_item.contentId || "",
-                size: humanFileSize(a_item.content?.length || 0),
-                url: blob_url,
-                blob: blob
-            }
-        }) || [];
-    } catch (error) {
-        console.log('Error parsing email with PostalMime');
-        console.error(error);
-        item.subject = 'No Subject';
-        item.message = item.raw;
+    }
+
+    if (rawBytes !== undefined ? rawBytes.byteLength === 0 : typeof raw !== 'string' || raw.length === 0) {
+        throw new TypeError('Missing MIME data');
+    }
+    const parsed = await PostalMime.parse(rawBytes ?? raw, { attachmentEncoding: 'arraybuffer' });
+    const from = parsed.from;
+    return {
+        ...parsed,
+        sender: from?.name && from.address ? `${from.name} <${from.address}>` : from?.address,
+    };
+}
+
+function attachmentBlob(file) {
+    const { content, mimeType } = file;
+    // Both parsers are configured to return decoded bytes. Passing the view
+    // itself to Blob preserves byteOffset and byteLength.
+    if (!(content instanceof ArrayBuffer) && !ArrayBuffer.isView(content)) return null;
+    return new Blob([content], { type: mimeType || 'application/octet-stream' });
+}
+
+export async function processItem(item, rawBytes, { includeAttachments = true } = {}) {
+    item.originalSource ??= item.source;
+    if (rawBytes !== undefined) item.rawBytes = rawBytes;
+    item.parseError = false;
+    item.attachments = [];
+    try {
+        const parsed = await parseMail(item.raw, rawBytes);
+        item.source = parsed.sender || item.originalSource;
+        item.subject = parsed.subject || 'No Subject';
+        item.message = parsed.html || parsed.text || '';
+        item.text = parsed.text || '';
+        if (!includeAttachments) return item;
+
+        const cidUrls = new Map();
+        for (const [index, file] of (parsed.attachments || []).entries()) {
+            const blob = attachmentBlob(file);
+            const url = blob ? URL.createObjectURL(blob) : null;
+            if (url && file.contentId) cidUrls.set(file.contentId.replace(/^<|>$/g, ''), url);
+            item.attachments.push({
+                id: file.contentId || index,
+                filename: file.filename || file.contentId || 'attachment',
+                size: blob ? humanFileSize(blob.size) : null,
+                url,
+                blob,
+            });
+        }
+        if (parsed.html && cidUrls.size) {
+            item.message = parsed.html.replace(/\bcid:([^\s"'<>),;]+)/gi, (match, id) => {
+                try {
+                    return cidUrls.get(decodeURIComponent(id)) ?? match;
+                } catch {
+                    return match;
+                }
+            });
+        }
+    } catch {
+        releaseMailAttachments(item);
+        item.attachments = [];
+        item.parseError = true;
+        item.subject ||= 'No Subject';
+        item.message = '';
+        item.text = '';
     }
     return item;
 }
 
+export function releaseMailAttachments(item) {
+    for (const attachment of item?.attachments ?? []) {
+        if (attachment.url) URL.revokeObjectURL(attachment.url);
+    }
+}
+
 export function getDownloadEmlUrl(raw) {
-    return URL.createObjectURL(
-        new Blob([raw], { type: 'text/plain' }
-        ))
+    return URL.createObjectURL(new Blob([raw], { type: 'message/rfc822' }));
 }

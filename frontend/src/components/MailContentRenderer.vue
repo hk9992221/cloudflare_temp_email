@@ -72,7 +72,7 @@ const props = defineProps({
 
 const showTextMail = ref(preferShowTextMail.value);
 const showAttachments = ref(false);
-const curAttachments = ref([]);
+const curAttachments = computed(() => props.mail.attachments);
 const attachmentLoding = ref(false);
 const readStatusUpdating = ref(false);
 const showFullscreen = ref(false);
@@ -98,6 +98,7 @@ watch(() => props.mail.id, () => {
   showRemoteImages.value = false;
   showMoreActions.value = false;
   showMailDetails.value = false;
+  showAttachments.value = false;
 });
 
 const allowRemoteImages = computed(() => autoLoadRemoteImages.value || showRemoteImages.value);
@@ -123,7 +124,6 @@ const handleDelete = () => {
 };
 
 const handleViewAttachments = () => {
-  curAttachments.value = props.mail.attachments;
   showAttachments.value = true;
 };
 
@@ -179,6 +179,7 @@ const handleSaveToS3 = async (filename, blob) => {
 
 <template>
   <div class="mail-content-renderer">
+    <n-alert v-if="mail.parseError" type="error">{{ t('mailParseError') }}</n-alert>
     <div class="mail-details">
       <div class="mail-address">
         <n-text depth="3" class="mail-address-label">{{ t('from') }}</n-text>
@@ -333,10 +334,10 @@ const handleSaveToS3 = async (filename, blob) => {
           <n-thing class="center" :title="row.filename">
             <template #description>
               <n-space>
-                <n-tag type="info">
-                  Size: {{ row.size }}
+                <n-tag :type="row.blob ? 'info' : 'error'">
+                  {{ row.blob ? `Size: ${row.size}` : t('attachmentDataMissing') }}
                 </n-tag>
-                <n-button v-if="showSaveS3" @click="handleSaveToS3(row.filename, row.blob)" ghost type="info"
+                <n-button v-if="showSaveS3 && row.blob" @click="handleSaveToS3(row.filename, row.blob)" ghost type="info"
                   size="small">
                   {{ t('saveToS3') }}
                 </n-button>
@@ -344,7 +345,7 @@ const handleSaveToS3 = async (filename, blob) => {
             </template>
           </n-thing>
           <template #suffix>
-            <n-button tag="a" target="_blank" tertiary type="info" size="small" :download="row.filename"
+            <n-button v-if="row.url" tag="a" target="_blank" tertiary type="info" size="small" :download="row.filename"
               :href="row.url">
               <n-icon :component="CloudDownloadRound" />
             </n-button>

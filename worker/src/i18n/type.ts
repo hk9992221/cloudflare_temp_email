@@ -176,6 +176,7 @@ export type LocaleMessages = {
     TgCredentialMsg: string
     TgNoSenderMsg: string
     TgMsgTooLongMsg: string
+    TgAttachmentUploadFailedMsg: string
     TgParseFailedViewInAppMsg: string
     TgMaxAddressReachedMsg: string
     TgMaxAddressReachedCleanMsg: string

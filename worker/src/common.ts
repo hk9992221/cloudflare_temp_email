@@ -683,7 +683,7 @@ export const handleMailListQuery = async (
         const legacyContent = (name: string) => names.has(name)
             ? `CASE WHEN length(CAST(${alias}${name} AS BLOB)) <= 262144 THEN ${alias}${name} END AS ${name}`
             : `NULL AS ${name}`;
-        const projection = ['id', 'source', 'address', 'created_at', 'is_unread', 'storage_backend',
+        const projection = ['id', 'source', 'address', 'message_id', 'created_at', 'is_unread', 'storage_backend',
             'subject', 'sender', 'preview', 'attachment_count', 'metadata'].map(field).concat(legacyContent('raw'), legacyContent('raw_blob'));
         selection = query.replace(/^SELECT (?:rm\.)?\*/, `SELECT ${projection.join(', ')}`);
     }

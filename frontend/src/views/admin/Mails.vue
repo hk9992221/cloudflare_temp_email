@@ -17,7 +17,6 @@ const queryMail = () => {
     mailBoxKey.value = Date.now();
 }
 
-const fetchMailDetail = id => api.fetch(`/admin/mails/${id}`, { showLoading: false });
 const fetchRawMail = id => api.fetch(`/admin/mails/${id}?download=eml`,
     { showLoading: false, responseType: 'blob' });
 
@@ -46,7 +45,7 @@ const deleteMail = async (curMailId) => {
         </n-input-group>
         <div style="margin-top: 10px;"></div>
         <MailBox :key="mailBoxKey" :enableUserDeleteEmail="true" :fetchMailData="fetchMailData"
-            :fetchMailDetail="fetchMailDetail" :fetchRawMail="fetchRawMail"
+            :fetchRawMail="fetchRawMail"
             :deleteMail="deleteMail" :showFilterInput="true" />
     </div>
 </template>

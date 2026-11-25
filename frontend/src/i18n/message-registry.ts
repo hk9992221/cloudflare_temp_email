@@ -108,8 +108,8 @@ export const MESSAGE_REGISTRY = {
       "zh": "转发"
     },
     "keywordQueryTip": {
-      "en": "Filter current page",
-      "zh": "过滤当前页"
+      "en": "Filter subjects and previews on this page",
+      "zh": "筛选本页主题和预览"
     },
     "multiAction": {
       "en": "Multi Action",
@@ -203,6 +203,8 @@ export const MESSAGE_REGISTRY = {
     }
   },
   "components.MailContentRenderer": {
+    "mailParseError": { "en": "Could not parse this email. Download the original to inspect it.", "zh": "无法解析此邮件，可下载原始邮件查看。" },
+    "attachmentDataMissing": { "en": "Attachment data is unavailable", "zh": "附件数据缺失" },
     "from": {
       "en": "From",
       "zh": "发件人"

@@ -192,7 +192,7 @@ When `ADMIN_API_IP_WHITELIST` is unset or empty, source IPs are not restricted. 
 | `TG_MAX_ADDRESS`     | Number    | No       | Maximum number of mailboxes that can be bound to the Telegram Bot           | `5`                  | `5`     |
 | `TG_BOT_INFO`        | Text      | No       | Predefined Bot info can reduce webhook latency                              | Empty; queried at runtime | `{}` |
 | `TG_ALLOW_USER_LANG` | Text/JSON | No       | Allow users to switch language via `/lang` command                          | `false`              | `true`  |
-| `ENABLE_TG_PUSH_ATTACHMENT` | Text/JSON | No | Enable sending email attachments via Telegram push, 50MB per file limit | `false` | `true` |
+| `ENABLE_TG_PUSH_ATTACHMENT` | Text/JSON | No | Send attachments via Telegram, up to 50 MB per file. Multiple images, videos, or audio files are grouped as documents. Other attachments are sent individually. Failed uploads show a Webmail download notice | `false` | `true` |
 
 > [!NOTE]
 > Telegram functionality requires email parsing, free tier CPU is limited, may cause large email parsing timeout

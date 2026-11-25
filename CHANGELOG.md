@@ -15,6 +15,8 @@
 
 ### Bug Fixes
 
+- fix: |邮件附件| 按真实文件字节显示大小，打开邮件时读取原始 EML，Telegram 保留附件原件并提示推送失败。
+
 - fix: |部署| 后端 Actions 发布时沿用 Cloudflare 当前的邮件存储绑定及运行设置。
 
 ### Improvements

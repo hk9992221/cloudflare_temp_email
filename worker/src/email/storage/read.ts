@@ -1,4 +1,4 @@
-import { resolveRawEmail as resolveD1Raw } from '../../gzip';
+import { decodeMailBytes, resolveRawEmail as resolveD1Raw } from '../../gzip';
 import { RawMailRow } from '../../models';
 import { MailStorageError, MAX_RAW_MAIL_BYTES, readBounded, readObject, requireBucket } from './r2';
 
@@ -24,17 +24,13 @@ export async function readRawMailBytes(env: Bindings, row: RawMailRow) {
 
 export async function resolveRawEmail(env: Bindings, row: RawMailRow): Promise<string> {
     if (row.storage_backend !== 'r2') return resolveD1Raw(row);
-    const bytes = new Uint8Array(await readRawMailBytes(env, row));
-    const text = new TextDecoder().decode(bytes);
-    // Workers' UTF-8 decoder strips the leading BOM. Keep it in the EML text
-    // so re-encoding the public raw field also preserves valid UTF-8 messages.
-    return bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? '\uFEFF' + text : text;
+    return decodeMailBytes(await readRawMailBytes(env, row));
 }
 
 export async function rawMailParseContext(env: Bindings, row: RawMailRow): Promise<ParsedEmailContext> {
-    if (row.storage_backend !== 'r2') return { rawEmail: await resolveD1Raw(row) };
+    if (row.storage_backend !== 'r2' && row.raw_blob == null) return { rawEmail: row.raw ?? '' };
     const rawBytes = await readRawMailBytes(env, row);
-    return { rawEmail: new TextDecoder().decode(rawBytes), rawBytes };
+    return { rawEmail: decodeMailBytes(rawBytes), rawBytes };
 }
 
 export function publicMailRow(row: RawMailRow) {

@@ -178,6 +178,7 @@ const messages: LocaleMessages = {
     TgCredentialMsg: "Credential:",
     TgNoSenderMsg: "No sender",
     TgMsgTooLongMsg: "Message too long, please view in mini app",
+    TgAttachmentUploadFailedMsg: "{count} attachment(s) could not be sent. Download the originals from Webmail.",
     TgParseFailedViewInAppMsg: "Parse failed, please view in mini app",
     TgMaxAddressReachedMsg: "Maximum address limit reached",
     TgMaxAddressReachedCleanMsg: "Maximum address limit reached, please /cleaninvalidaddress first",

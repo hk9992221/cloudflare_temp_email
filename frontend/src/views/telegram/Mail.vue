@@ -3,34 +3,39 @@ import { useRoute } from 'vue-router'
 
 import { useGlobalState } from '../../store'
 import { api } from '../../api'
-import { onMounted, watch } from 'vue';
-import { processItem } from '../../utils/email-parser'
+import { onBeforeUnmount, onMounted, watch } from 'vue';
+import { processItem, releaseMailAttachments } from '../../utils/email-parser'
 import { utcToLocalDate } from '../../utils';
 
 const { telegramApp, loading, useUTCDate } = useGlobalState()
 const route = useRoute()
 
 const curMail = ref({});
+let mailRequest = 0;
+watch(curMail, (_current, previous) => releaseMailAttachments(previous));
 
 watch(telegramApp, async () => {
     if (telegramApp.value.initData) {
-        curMail.value = await fetchMailData();
+        await fetchMailData();
     }
 });
 
 const fetchMailData = async () => {
+    const request = ++mailRequest;
     try {
         const credentials = {
             method: 'POST',
             body: JSON.stringify({ initData: telegramApp.value.initData, mailId: route.query.mail_id }),
         };
         const res = await api.fetch('/telegram/get_mail', credentials);
-        if (!res) return {};
-        loading.value = true;
-        const rawBytes = res.raw.includes('�')
-            ? await (await api.fetch('/telegram/get_mail?download=eml', { ...credentials, responseType: 'blob' })).arrayBuffer()
-            : undefined;
-        return await processItem(res, rawBytes);
+        if (!res || request !== mailRequest) return;
+        const raw = await api.fetch('/telegram/get_mail?download=eml', { ...credentials, responseType: 'blob' });
+        const mail = await processItem(res, await raw.arrayBuffer());
+        if (request !== mailRequest) {
+            releaseMailAttachments(mail);
+            return;
+        }
+        curMail.value = mail;
     }
     catch (error) {
         console.error(error);
@@ -41,8 +46,10 @@ const fetchMailData = async () => {
     }
 };
 
-onMounted(async () => {
-    curMail.value = await fetchMailData();
+onMounted(fetchMailData);
+onBeforeUnmount(() => {
+    mailRequest++;
+    releaseMailAttachments(curMail.value);
 });
 </script>
 
