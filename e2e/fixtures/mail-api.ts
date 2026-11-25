@@ -44,9 +44,9 @@ const seedMail = async (request: Request, env: Bindings) => {
 
 // Exercises the real email() handler with a mock ForwardableEmailMessage.
 const receiveMail = async (request: Request, env: Bindings, ctx: ExecutionContext) => {
-    const { from, to, raw, ai_extract_result, extract_mode, forward_address_list, subdomain_forward_address_list,
+    const { from, to, raw, raw_base64, ai_extract_result, extract_mode, forward_address_list, subdomain_forward_address_list,
         record_telegram, record_another_worker } = await request.json<{
-        from: string; to: string; raw: string; ai_extract_result?: unknown; extract_mode?: string;
+        from: string; to: string; raw: string; raw_base64?: string; ai_extract_result?: unknown; extract_mode?: string;
         forward_address_list?: string[];
         subdomain_forward_address_list?: SubdomainForwardAddressList[];
         record_telegram?: boolean; record_another_worker?: boolean;
@@ -66,7 +66,7 @@ const receiveMail = async (request: Request, env: Bindings, ctx: ExecutionContex
         headers.set('Message-ID', `<e2e-${Date.now()}@test>`);
     }
 
-    const rawBytes = new TextEncoder().encode(raw);
+    const rawBytes = raw_base64 ? Uint8Array.from(atob(raw_base64), byte => byte.charCodeAt(0)) : new TextEncoder().encode(raw);
     const forwardFailure = request.headers.get('x-test-forward-failure');
     const failedAddress = request.headers.get('x-test-forward-failure-address');
     const state = { rejected: undefined as string | undefined, replyCalled: false, replyCount: 0, forwardedTo: [] as string[] };

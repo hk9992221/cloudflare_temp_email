@@ -34,10 +34,17 @@ const getS3Client = (c: Context<HonoCustomType>) => {
     });
 }
 
+// S3-compatible clients may normalize dot segments when constructing a URL.
+function isSafeAttachmentKey(key: unknown): key is string {
+    return typeof key === 'string' && key.length > 0
+        && !key.split(/[\\/]/).some(part => part === '.' || part === '..');
+}
+
 export default {
     getSignedGetUrl: async (c: Context<HonoCustomType>) => {
         const { address } = c.get("jwtPayload")
         const { key } = await c.req.json()
+        if (!isSafeAttachmentKey(key)) return c.json({ error: "Invalid attachment key" }, 400);
         const client = getS3Client(c);
         const url = await getSignedUrl(
             client,
@@ -52,6 +59,7 @@ export default {
     getSignedPutUrl: async (c: Context<HonoCustomType>) => {
         const { address } = c.get("jwtPayload")
         const { key } = await c.req.json()
+        if (!isSafeAttachmentKey(key)) return c.json({ error: "Invalid attachment key" }, 400);
         const client = getS3Client(c);
         const url = await getSignedUrl(
             client,
@@ -84,6 +92,7 @@ export default {
     deleteKey: async (c: Context<HonoCustomType>) => {
         const { address } = c.get("jwtPayload")
         const { key } = await c.req.json()
+        if (!isSafeAttachmentKey(key)) return c.json({ error: "Invalid attachment key" }, 400);
         const client = getS3Client(c);
         await client.send(
             new DeleteObjectCommand({

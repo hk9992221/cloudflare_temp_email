@@ -225,6 +225,7 @@ test('DB initialization and v0.0.10 -> v0.0.11 migration add expires_at column a
     CONSTANTS,
     utils: utilsMock,
     compareVersions,
+    ensureMailStorageSchema: async () => {},
   })).default;
 
   // 1. Fresh initialization via DB_INIT_QUERIES
@@ -234,7 +235,7 @@ test('DB initialization and v0.0.10 -> v0.0.11 migration add expires_at column a
   freshContext.env.DB.prepare = () => assert.fail('Fresh initialization must not run migration checks');
   const initRes = await dbApi.initialize(freshContext);
   assert.equal(initRes.status, 200);
-  assert.equal(settingsMap.get(CONSTANTS.DB_VERSION_KEY), 'v0.0.11');
+  assert.equal(settingsMap.get(CONSTANTS.DB_VERSION_KEY), CONSTANTS.DB_VERSION);
   const freshCols = freshDb.prepare('PRAGMA table_info(address)').all().map((r) => r.name);
   assert.ok(freshCols.includes('expires_at'));
   const freshIndexes = freshDb.prepare('PRAGMA index_list(address)').all().map((r) => r.name);
@@ -266,7 +267,7 @@ test('DB initialization and v0.0.10 -> v0.0.11 migration add expires_at column a
   settingsMap.set(CONSTANTS.DB_VERSION_KEY, 'v0.0.10');
   const migrateRes = await dbApi.migrate(createContext(legacyDb));
   assert.equal(migrateRes.status, 200);
-  assert.equal(settingsMap.get(CONSTANTS.DB_VERSION_KEY), 'v0.0.11');
+  assert.equal(settingsMap.get(CONSTANTS.DB_VERSION_KEY), CONSTANTS.DB_VERSION);
   const migratedCols = legacyDb.prepare('PRAGMA table_info(address)').all().map((r) => r.name);
   assert.ok(migratedCols.includes('expires_at'));
   const migratedIndexes = legacyDb.prepare('PRAGMA index_list(address)').all().map((r) => r.name);
@@ -289,7 +290,7 @@ test('DB initialization and v0.0.10 -> v0.0.11 migration add expires_at column a
   settingsMap.delete(CONSTANTS.DB_VERSION_KEY);
   const unversionedRes = await dbApi.migrate(createContext(unversionedDb));
   assert.equal(unversionedRes.status, 200);
-  assert.equal(settingsMap.get(CONSTANTS.DB_VERSION_KEY), 'v0.0.11');
+  assert.equal(settingsMap.get(CONSTANTS.DB_VERSION_KEY), CONSTANTS.DB_VERSION);
   const unversionedCols = unversionedDb.prepare('PRAGMA table_info(address)').all().map((r) => r.name);
   assert.ok(unversionedCols.includes('expires_at'));
   const unversionedIndexes = unversionedDb.prepare('PRAGMA index_list(address)').all().map((r) => r.name);

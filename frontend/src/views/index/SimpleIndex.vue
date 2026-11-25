@@ -43,6 +43,8 @@ const copyAddress = async () => {
     }
 }
 
+const fetchRawMail = id => api.fetch(`/api/mail/${id}?download=eml`, { responseType: 'blob', showLoading: false });
+
 // 获取邮件数据
 const fetchMails = async () => {
     if (!settings.value.address) return
@@ -50,7 +52,8 @@ const fetchMails = async () => {
         const { results, count } = await api.fetch(`/api/mails?limit=1&offset=${currentPage.value - 1}`)
         totalCount.value = count > 0 ? count : totalCount.value;
         const rawMail = results && results.length > 0 ? results[0] : null
-        currentMail.value = rawMail ? await processItem(rawMail) : null
+        const rawBytes = rawMail?.raw.includes('�') ? await (await fetchRawMail(rawMail.id)).arrayBuffer() : undefined;
+        currentMail.value = rawMail ? await processItem(rawMail, rawBytes) : null
         return true
     } catch (error) {
         console.error('Failed to fetch mails:', error)

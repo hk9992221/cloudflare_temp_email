@@ -15,6 +15,7 @@ import worker_config from './worker_config'
 import admin_mail_api from './admin_mail_api'
 import { sendMailbyAdmin, sendMailByBindingAdmin } from './send_mail'
 import db_api from './db_api'
+import mail_storage_api from './mail_storage_api'
 import ip_blacklist_settings from './ip_blacklist_settings'
 import ai_extract_settings from './ai_extract_settings'
 import config_api from './config_api'
@@ -94,6 +95,10 @@ api.post('/admin/send_mail', sendMailbyAdmin)
 api.post('/admin/send_mail_by_binding', sendMailByBindingAdmin)
 
 // db api
+api.get('/admin/mail_storage', mail_storage_api.getStatus)
+api.get('/admin/mail_storage/check', mail_storage_api.check)
+api.post('/admin/mail_storage/migrate', mail_storage_api.migrate)
+api.post('/admin/mail_storage/gc', mail_storage_api.gc)
 api.get('admin/db_version', db_api.getVersion)
 api.post('admin/db_initialize', db_api.initialize)
 api.post('admin/db_migration', db_api.migrate)

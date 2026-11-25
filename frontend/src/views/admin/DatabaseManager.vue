@@ -4,6 +4,7 @@ import { useScopedI18n } from '@/i18n/app'
 import { CleaningServicesFilled } from '@vicons/material'
 
 import { api } from '../../api'
+import MailStorageManager from './MailStorageManager.vue';
 import { init } from 'vooks/lib/on-fonts-ready';
 
 const message = useMessage()
@@ -201,6 +202,7 @@ onMounted(async () => {
             </div>
 
         </n-card>
+        <MailStorageManager :key="dbVersionData.current_db_version" />
     </div>
 </template>
 
@@ -216,7 +218,8 @@ onMounted(async () => {
 .center {
     display: flex;
     text-align: center;
-    place-items: center;
+    flex-direction: column;
+    align-items: center;
     justify-content: center;
 }
 

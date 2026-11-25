@@ -10,6 +10,7 @@
 
 ### Features
 
+- feat: |Mail Storage| Add private R2 MIME storage, mixed D1/R2 reads, lightweight lists, resumable migration, and object collection. Upgrade to schema `v0.0.12` before enabling R2.
 - feat: |Mailbox| Add `ENABLE_ADDRESS_EXPIRY` feature flag (default `false`); when enabled, support optional `expiresAt` expiration when creating addresses via API (`/api/new_address`, `/admin/new_address`) and Web UI (defaults to never expiring), enforce expiry in shared mailbox auth and single-address user checks, and clean up expired addresses in bounded cron batches; upgrade database schema to `v0.0.11` (migrate database before enabling; actual deletion depends on cron schedule and cleanup progress; disabling pauses enforcement and cleanup without erasing saved deadlines; existing deployments must run `Admin -> Quick Setup -> Database -> Migrate Database`, or `db/2026-11-18-address-expires-at.sql` if already on `v0.0.10`)
 
 ### Bug Fixes

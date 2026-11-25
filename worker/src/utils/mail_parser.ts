@@ -41,7 +41,9 @@ export const commonParseMail = async (parsedEmailContext: ParsedEmailContext): P
     // }
     try {
         const { default: PostalMime } = await import('postal-mime');
-        const parsedEmail = await PostalMime.parse(raw_mail);
+        const parsedEmail = parsedEmailContext.rawBytes
+            ? await PostalMime.parse(parsedEmailContext.rawBytes)
+            : await PostalMime.parse(raw_mail);
         parsedEmailContext.parsedEmail = {
             sender: parsedEmail.from ? `${parsedEmail.from.name} <${parsedEmail.from.address}>` : "",
             subject: parsedEmail.subject || "",
@@ -51,7 +53,8 @@ export const commonParseMail = async (parsedEmailContext: ParsedEmailContext): P
             attachments: (parsedEmail.attachments || []).map(att => ({
                 filename: att.filename || "attachment",
                 mimeType: att.mimeType || "application/octet-stream",
-                content: new Uint8Array(att.content),
+                content: typeof att.content === 'string'
+                ? new TextEncoder().encode(att.content) : new Uint8Array(att.content),
                 disposition: att.disposition || "attachment",
             })),
         };

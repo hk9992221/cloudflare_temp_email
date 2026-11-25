@@ -30,6 +30,8 @@ const props = defineProps({
     default: () => { },
     required: true
   },
+  fetchMailDetail: Function,
+  fetchRawMail: Function,
   deleteMail: {
     type: Function,
     default: () => { },
@@ -102,13 +104,46 @@ const data = computed(() => {
   });
 })
 
-const openMail = (mail) => {
-  curMail.value = mail
-  if (mail?.is_unread !== 1 || !props.enableMailReadStatus) return
-  mail.is_unread = 0
-  void props.updateMailReadStatus(mail.id, false).catch(() => {
-    mail.is_unread = 1
-  })
+let detailRequest = 0;
+const closeMail = () => {
+  detailRequest++;
+  curMail.value = null;
+}
+
+const openMail = async (mail, markRead = true) => {
+  const request = ++detailRequest;
+  curMail.value = mail;
+  try {
+    const needsDetail = mail.raw === undefined && props.fetchMailDetail;
+    const mayNeedBytes = mail.raw?.includes('�') && props.fetchRawMail;
+    if (needsDetail || mayNeedBytes) {
+      const detail = needsDetail ? await props.fetchMailDetail(mail.id) : { ...mail };
+      if (!detail) throw new Error(t('pleaseSelectMail'));
+      if (request !== detailRequest) return;
+      // JSON exposes MIME as text for legacy API callers. Parse the original
+      // bytes when decoding may have replaced non-UTF-8 bytes.
+      const rawBytes = detail.raw.includes('�') && props.fetchRawMail
+        ? await (await props.fetchRawMail(mail.id)).arrayBuffer() : undefined;
+      if (request !== detailRequest) return;
+      const parsed = await processItem(detail, rawBytes);
+      if (request !== detailRequest) {
+        parsed.attachments?.forEach(({ url }) => URL.revokeObjectURL(url));
+        return;
+      }
+      curMail.value = { ...parsed, is_unread: mail.is_unread };
+    }
+    if (!markRead || mail.is_unread !== 1 || !props.enableMailReadStatus) return;
+    mail.is_unread = 0;
+    curMail.value.is_unread = 0;
+    await props.updateMailReadStatus(mail.id, false).catch(() => {
+      mail.is_unread = 1;
+      if (curMail.value?.id === mail.id) curMail.value.is_unread = 1;
+    });
+  } catch (error) {
+    if (request !== detailRequest) return;
+    closeMail();
+    message.error(error.message || "error");
+  }
 }
 
 const toggleCurrentMailUnread = async () => {
@@ -116,12 +151,15 @@ const toggleCurrentMailUnread = async () => {
   const mail = curMail.value
   const previousValue = mail.is_unread
   const isUnread = previousValue !== 1
-  mail.is_unread = isUnread ? 1 : 0
+  const listMail = rawData.value.find(item => item.id === mail.id);
+  mail.is_unread = isUnread ? 1 : 0;
+  if (listMail) listMail.is_unread = mail.is_unread;
   try {
     await props.updateMailReadStatus(mail.id, isUnread)
     message.success(t("success"))
   } catch {
-    mail.is_unread = previousValue
+    mail.is_unread = previousValue;
+    if (listMail) listMail.is_unread = previousValue;
   }
 }
 
@@ -202,6 +240,8 @@ watch(autoRefresh, async (autoRefresh, old) => {
 
 let loadedPage = { page: page.value, pageSize: pageSize.value }
 let requestedPage = null
+const filterActive = computed(() => !!localFilterKeyword.value.trim());
+watch(filterActive, () => refresh());
 watch([page, pageSize], async ([page, pageSize]) => {
   if (requestedPage?.page === page && requestedPage.pageSize === pageSize) return
   if (loadedPage.page !== page || loadedPage.pageSize !== pageSize) {
@@ -214,20 +254,26 @@ const refresh = async () => {
   requestedPage = pagination
   try {
     const { results, count: totalCount } = await props.fetchMailData(
-      pagination.pageSize, (pagination.page - 1) * pagination.pageSize
+      pagination.pageSize, (pagination.page - 1) * pagination.pageSize, !filterActive.value
     );
+    if (requestedPage !== pagination) return;
     loading.value = true;
-    rawData.value = await Promise.all(results.map(async (item) => {
+    const rows = [];
+    for (const item of results) {
       item.checked = false;
-      return await processItem(item);
-    }));
+      rows.push(item.raw === undefined
+        ? { ...item, source: item.sender || item.source, text: item.preview }
+        : await processItem(item));
+    }
+    if (requestedPage !== pagination) return;
+    rawData.value = rows;
     loadedPage = pagination
-    if (totalCount > 0) {
+    if (pagination.page === 1) {
       count.value = totalCount;
     }
-    curMail.value = null;
+    closeMail();
     if (!isMobile.value && !mailListView.value && data.value.length > 0) {
-      curMail.value = data.value[0];
+      void openMail(data.value[0], false);
     }
     return true
   } catch (error) {
@@ -251,11 +297,11 @@ const backFirstPageAndRefresh = async () => {
 const clickRow = (row) => {
   if (multiActionMode.value) {
     row.checked = !row.checked;
-    curMail.value = row;
+    void openMail(row, false);
     return;
   }
   if (mailListView.value && curMail.value?.id === row.id) {
-    curMail.value = null;
+    closeMail();
     return;
   }
   openMail(row);
@@ -270,7 +316,7 @@ const deleteMail = async () => {
   try {
     await props.deleteMail(curMail.value.id);
     message.success(t("success"));
-    curMail.value = null;
+    closeMail();
     await refresh();
   } catch (error) {
     message.error(error.message || "error");
@@ -342,7 +388,7 @@ const multiActionDeleteMail = async () => {
   } catch (error) {
     rawData.value = rawData.value.filter(mail => !deletedIds.has(mail.id))
     count.value = Math.max(0, count.value - deletedIds.size)
-    if (deletedIds.has(curMail.value?.id)) curMail.value = null
+    if (deletedIds.has(curMail.value?.id)) closeMail()
     message.error(error.message || "error");
   } finally {
     loading.value = false;
@@ -361,7 +407,8 @@ const multiActionDownload = async () => {
     const JSZip = JSZipModlue.default;
     const zip = new JSZip();
     for (const mail of selectedMails) {
-      zip.file(`${mail.id}.eml`, mail.raw);
+      const contents = props.fetchRawMail ? await props.fetchRawMail(mail.id) : mail.raw;
+      zip.file(`${mail.id}.eml`, contents);
     }
     multiActionDownloadZip.value = {
       url: URL.createObjectURL(await zip.generateAsync({ type: "blob" })),
@@ -381,6 +428,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearInterval(timer.value)
+  closeMail()
 })
 </script>
 
@@ -458,7 +506,7 @@ onBeforeUnmount(() => {
           <div v-if="curMail" style="margin: 8px;">
             <n-flex justify="space-between" align="center">
               <n-space :wrap="false" align="center">
-                <n-button v-if="mailListView" @click="curMail = null" text size="small">
+                <n-button v-if="mailListView" @click="closeMail" text size="small">
                   <template #icon>
                     <n-icon>
                       <ArrowBackIosNewFilled />
@@ -487,10 +535,11 @@ onBeforeUnmount(() => {
           </div>
           <n-card :bordered="false" v-if="curMail" class="mail-item" :title="curMail.subject"
             style="overflow: auto; max-height: 100vh;">
-            <MailContentRenderer :mail="curMail" :showEMailTo="showEMailTo"
+            <MailContentRenderer v-if="curMail?.raw !== undefined" :mail="curMail" :showEMailTo="showEMailTo"
               :enableUserDeleteEmail="enableUserDeleteEmail" :showReply="showReply" :showSaveS3="showSaveS3"
               :enableMailReadStatus="enableMailReadStatus" :onUpdateMailReadStatus="toggleCurrentMailUnread"
               :onDelete="deleteMail" :onReply="replyMail" :onForward="forwardMail" :onSaveToS3="saveToS3Proxy" />
+            <n-spin v-else-if="curMail" />
           </n-card>
           <n-card :bordered="false" embedded class="mail-item" v-else>
             <n-result status="info" :title="count === 0 ? t('emptyInbox') : t('pleaseSelectMail')">
@@ -542,15 +591,16 @@ onBeforeUnmount(() => {
           </n-list-item>
         </n-list>
       </div>
-      <n-drawer v-model:show="curMail" width="100%" placement="bottom" :trap-focus="false" :block-scroll="false"
+      <n-drawer :show="!!curMail" @update:show="value => { if (!value) closeMail() }" width="100%" placement="bottom" :trap-focus="false" :block-scroll="false"
         style="height: 80vh;">
         <n-drawer-content :title="curMail ? curMail.subject : ''" closable>
           <div class="mail-mobile-reader">
-            <MailContentRenderer :mail="curMail" :showEMailTo="showEMailTo"
+            <MailContentRenderer v-if="curMail?.raw !== undefined" :mail="curMail" :showEMailTo="showEMailTo"
               :enableUserDeleteEmail="enableUserDeleteEmail" :showReply="showReply" :showSaveS3="showSaveS3"
               :enableMailReadStatus="enableMailReadStatus" :onUpdateMailReadStatus="toggleCurrentMailUnread"
               :onDelete="deleteMail" :onReply="replyMail" :onForward="forwardMail"
               :onSaveToS3="saveToS3Proxy" />
+            <n-spin v-else-if="curMail" />
           </div>
         </n-drawer-content>
       </n-drawer>

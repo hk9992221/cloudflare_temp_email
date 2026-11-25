@@ -155,6 +155,9 @@ ENABLE_AUTO_REPLY = false
 # REMOVE_ALL_ATTACHMENT = true
 # enable gzip compressed email storage in raw_blob column (run db_migration first)
 # ENABLE_MAIL_GZIP = true
+# Independent of ENABLE_MAIL_GZIP. Keep d1 until the schema upgrade and binding check.
+# MAIL_STORAGE_BACKEND = "d1"
+# MAIL_STORAGE_R2_GZIP = true
 # Per-run limit for built-in mail, sent-mail, and address cleanup tasks. Defaults to 3000, maximum 5000.
 # CLEANUP_BATCH_SIZE = 3000
 # Email extraction, automatically extract verification codes, auth links, etc.
@@ -207,3 +210,8 @@ database_id = "xxx"
 # [[services]]
 # binding = "AUTH_INBOX"
 # service = "auth-inbox"
+
+# Optional native binding for raw messages. Keep the bucket private.
+# [[r2_buckets]]
+# binding = "MAIL_STORAGE"
+# bucket_name = "private-mail-attachments"

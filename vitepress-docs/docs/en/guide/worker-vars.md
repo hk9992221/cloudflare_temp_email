@@ -118,6 +118,8 @@ When `ADMIN_API_IP_WHITELIST` is unset or empty, source IPs are not restricted. 
 | `REMOVE_EXCEED_SIZE_ATTACHMENT` | Text/JSON | No       | If attachment exceeds 2MB, remove it; email may lose some information due to parsing                                   | `false`              | `true`                     |
 | `REMOVE_ALL_ATTACHMENT`         | Text/JSON | No       | Remove all attachments; email may lose some information due to parsing                                                 | `false`              | `true`                     |
 | `ENABLE_MAIL_GZIP`              | Text/JSON | No       | When enabled, new emails are gzip-compressed and stored in `raw_blob` column to save D1 database space. Existing plaintext `raw` data is automatically compatible for reading. **Run database migration first (`Admin -> Quick Setup -> Database -> Migrate Database` or `POST /admin/db_migration`) to ensure the `raw_blob` column exists before enabling. This feature adds compression/decompression CPU overhead, so enabling it on a paid Cloudflare Worker plan is recommended.** | `false` | `true` |
+| `MAIL_STORAGE_BACKEND` | Text | No | Backend for incoming messages. Upgrade the schema and configure the `MAIL_STORAGE` binding before enabling R2. See [D1 and R2 mail storage](./feature/mail-storage-r2.md). | `d1` | `r2` |
+| `MAIL_STORAGE_R2_GZIP` | Boolean | No | Compress new EML objects written to R2. Encoding is recorded per object. | `true` | `false` |
 | `CLEANUP_BATCH_SIZE`            | Number    | No       | Per-run limit for built-in mail, sent-mail, and address cleanup tasks, valid range `1-5000`. Smaller values reduce per-run D1 pressure; larger values clear backlogs faster | `3000` | `3000` |
 
 > [!NOTE]

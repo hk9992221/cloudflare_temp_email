@@ -1,6 +1,6 @@
 import { Context } from 'hono';
 
-import { resolveRawEmail } from '../gzip';
+import { rawMailParseContext } from '../email/storage/read';
 import { RawMailRow } from '../models';
 import { getBooleanValue } from '../utils';
 import i18n from '../i18n';
@@ -43,8 +43,7 @@ export const getWebhookAttachment = async (
     );
     if (!valid) return c.text('Not Found', 404);
 
-    const rawEmail = await resolveRawEmail(mail);
-    const parsedEmail = await commonParseMail({ rawEmail });
+    const parsedEmail = await commonParseMail(await rawMailParseContext(c.env, mail));
     const attachment = parsedEmail?.attachments?.[index];
     if (!attachment) return c.text('Not Found', 404);
 

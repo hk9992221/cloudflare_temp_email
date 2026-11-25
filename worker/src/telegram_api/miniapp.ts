@@ -3,7 +3,8 @@ import { createAddressToken } from '../address_auth';
 import { CONSTANTS } from "../constants";
 import { bindTelegramAddress, jwtListToAddressData, tgUserNewAddress, unbindTelegramAddress, verifyTelegramBindingToken } from "./common";
 import { checkCfTurnstile, checkIsAdmin, getBooleanValue } from "../utils";
-import { resolveRawEmailRow } from "../gzip";
+import { RawMailRow } from "../models";
+import { downloadRawMail, resolveRawEmailRow } from "../email/storage/read";
 import { TelegramSettings } from "./settings";
 import i18n from "../i18n";
 
@@ -141,19 +142,21 @@ async function getMail(c: Context<HonoCustomType>): Promise<Response> {
         if (checkIsAdmin(c)) {
             const result = await c.env.DB.prepare(
                 `SELECT * FROM raw_mails where id = ?`
-            ).bind(mailId).first();
+            ).bind(mailId).first<RawMailRow>();
             if (!result) {
                 return c.text("Mail not found", 404);
             }
-            return c.json(await resolveRawEmailRow(result));
+            return c.req.query('download') === 'eml'
+            ? downloadRawMail(c.env, result)
+            : c.json(await resolveRawEmailRow(c.env, result));
         }
         const userId = await checkTelegramAuth(c, initData);
         const jwtList = await c.env.KV.get<string[]>(`${CONSTANTS.TG_KV_PREFIX}:${userId}`, 'json') || [];
         const { addressList, addressIdMap } = await jwtListToAddressData(c, jwtList, msgs);
         const result = await c.env.DB.prepare(
             `SELECT * FROM raw_mails where id = ?`
-        ).bind(mailId).first();
-        if (!result) return c.json(null);
+        ).bind(mailId).first<RawMailRow>();
+        if (!result) return c.json(null, c.req.query('download') === 'eml' ? 404 : 200);
         const settings = await c.env.KV.get<TelegramSettings>(CONSTANTS.TG_KV_SETTINGS_KEY, "json");
         const superUser = settings?.enableGlobalMailPush && settings?.globalMailPushList.includes(userId);
         if (!superUser) {
@@ -168,7 +171,9 @@ async function getMail(c: Context<HonoCustomType>): Promise<Response> {
                 return c.text(msgs.TgNoPermissionViewMailMsg, 403);
             }
         }
-        return c.json(await resolveRawEmailRow(result));
+        return c.req.query('download') === 'eml'
+            ? downloadRawMail(c.env, result)
+            : c.json(await resolveRawEmailRow(c.env, result));
     }
     catch (e) {
         return c.text((e as Error).message, 400);

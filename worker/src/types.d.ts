@@ -125,6 +125,9 @@ type Bindings = {
 
     // gzip compression for raw_mails
     ENABLE_MAIL_GZIP: string | boolean | undefined
+    MAIL_STORAGE_BACKEND?: string
+    MAIL_STORAGE_R2_GZIP?: string | boolean
+    MAIL_STORAGE?: R2Bucket
     ENABLE_MAIL_READ_STATUS: string | boolean | undefined
     ENABLE_ADDRESS_EXPIRY: string | boolean | undefined
     CLEANUP_BATCH_SIZE: string | number | undefined
@@ -181,6 +184,7 @@ type ParsedEmailAttachment = {
 
 type ParsedEmailContext = {
     rawEmail: string,
+    rawBytes?: ArrayBuffer,
     parsedEmail?: {
         sender: string,
         subject: string,

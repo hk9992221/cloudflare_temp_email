@@ -9,7 +9,7 @@ import { TelegramSettings } from "./settings";
 import { sendTelegramAttachments } from "./tg_file_upload";
 import { bindTelegramAddress, deleteTelegramAddress, jwtListToAddressData, tgUserNewAddress, unbindTelegramAddress, unbindTelegramByAddress } from "./common";
 import { commonParseMail } from "../utils/mail_parser";
-import { resolveRawEmail } from "../gzip";
+import { rawMailParseContext } from "../email/storage/read";
 import { UserFromGetMe } from "telegraf/types";
 import i18n from "../i18n";
 import { LocaleMessages } from "../i18n/type";
@@ -359,18 +359,18 @@ export function newTelegramBot(c: Context<HonoCustomType>, token: string): Teleg
         ).bind(
             queryAddress, mailIndex
         ).first<RawMailRow>();
-        const raw = mailRow ? await resolveRawEmail(mailRow) : undefined;
+        const mailContext = mailRow ? await rawMailParseContext(c.env, mailRow) : undefined;
         const mailId = mailRow?.id;
         const created_at = mailRow?.created_at;
-        const { mail } = raw
-            ? await parseMail(msgs, { rawEmail: raw }, queryAddress, created_at, mailRow?.metadata)
+        const { mail } = mailContext
+            ? await parseMail(msgs, mailContext, queryAddress, created_at, mailRow?.metadata)
             : { mail: msgs.TgNoMoreMailsMsg };
         const settings = await c.env.KV.get<TelegramSettings>(CONSTANTS.TG_KV_SETTINGS_KEY, "json");
         const miniAppButtons = []
         if (settings?.miniAppUrl && settings?.miniAppUrl?.length > 0 && mailId) {
             const url = new URL(settings.miniAppUrl);
             url.pathname = "/telegram_mail"
-            url.searchParams.set("mail_id", mailId);
+            url.searchParams.set("mail_id", String(mailId));
             miniAppButtons.push(Markup.button.webApp(msgs.TgViewMailBtnMsg, url.toString()));
         }
         if (edit) {
@@ -379,7 +379,7 @@ export function newTelegramBot(c: Context<HonoCustomType>, token: string): Teleg
                     ...Markup.inlineKeyboard([
                         Markup.button.callback(msgs.TgPrevBtnMsg, `mail_${queryAddress}_${mailIndex - 1}`, mailIndex <= 0),
                         ...miniAppButtons,
-                        Markup.button.callback(msgs.TgNextBtnMsg, `mail_${queryAddress}_${mailIndex + 1}`, !raw),
+                        Markup.button.callback(msgs.TgNextBtnMsg, `mail_${queryAddress}_${mailIndex + 1}`, !mailContext),
                     ])
                 },
             );
@@ -389,7 +389,7 @@ export function newTelegramBot(c: Context<HonoCustomType>, token: string): Teleg
                 ...Markup.inlineKeyboard([
                     Markup.button.callback(msgs.TgPrevBtnMsg, `mail_${queryAddress}_${mailIndex - 1}`, mailIndex <= 0),
                     ...miniAppButtons,
-                    Markup.button.callback(msgs.TgNextBtnMsg, `mail_${queryAddress}_${mailIndex + 1}`, !raw),
+                    Markup.button.callback(msgs.TgNextBtnMsg, `mail_${queryAddress}_${mailIndex + 1}`, !mailContext),
                 ])
             },
         );

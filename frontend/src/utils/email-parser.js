@@ -5,10 +5,11 @@ function humanFileSize(size) {
     return parseFloat((size / Math.pow(1024, i)).toFixed(2)) + ' ' + ['B', 'KB', 'MB', 'GB', 'TB'][i];
 }
 
-export async function processItem(item) {
+export async function processItem(item, rawBytes) {
     // Try to parse the email using mail-parser-wasm
     item.originalSource = item.source;
-    try {
+    if (rawBytes) item.rawBytes = rawBytes;
+    if (!rawBytes) try {
         const { parse_message } = await import('mail-parser-wasm');
         const parsedEmail = parse_message(item.raw);
         item.source = parsedEmail.sender || item.source;
@@ -36,12 +37,12 @@ export async function processItem(item) {
         console.log('Error parsing email with mail-parser-wasm');
         console.error(error);
     }
-    if (item.subject && item.subject.length > 0 && item.message && item.message.length > 0) {
+    if (!rawBytes && item.subject && item.subject.length > 0 && item.message && item.message.length > 0) {
         return item;
     }
     // Fallback to PostalMime
     try {
-        const parsedEmail = await PostalMime.parse(item.raw);
+        const parsedEmail = await PostalMime.parse(rawBytes ?? item.raw);
         item.source = parsedEmail.from?.address || item.source;
         if (parsedEmail.from?.address && parsedEmail.from.name) {
             item.source = `${parsedEmail.from.name} <${parsedEmail.from.address}>`;
@@ -80,4 +81,3 @@ export function getDownloadEmlUrl(raw) {
         new Blob([raw], { type: 'text/plain' }
         ))
 }
-

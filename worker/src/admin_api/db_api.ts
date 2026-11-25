@@ -1,6 +1,7 @@
 import { Context } from "hono";
 import { CONSTANTS } from "../constants";
 import utils from "../utils";
+import { ensureMailStorageSchema } from "../email/storage/schema";
 import { compareVersions } from "../utils/version";
 
 const DB_INIT_QUERIES = `
@@ -164,12 +165,13 @@ export default {
         if (version) {
             return c.json({ message: "Database already initialized" });
         }
+        await ensureMailStorageSchema(c.env.DB);
         await utils.saveSetting(c, CONSTANTS.DB_VERSION_KEY, CONSTANTS.DB_VERSION);
         return c.json({ message: "Database initialized" });
     },
     migrate: async (c: Context<HonoCustomType>) => {
         const version = await utils.getSetting(c, CONSTANTS.DB_VERSION_KEY);
-        if (version && compareVersions(version, "v0.0.2") <= 0) {
+        if (!version || compareVersions(version, "v0.0.2") <= 0) {
             // migration to v0.0.3: add password column
             const tableInfo = await c.env.DB.prepare(
                 `PRAGMA table_info(address)`
@@ -177,11 +179,11 @@ export default {
             const hasPassword = tableInfo.results?.some(
                 (col: any) => col.name === 'password'
             );
-            if (!hasPassword) {
+            if (tableInfo.results?.length && !hasPassword) {
                 await c.env.DB.exec(`ALTER TABLE address ADD COLUMN password TEXT;`);
             }
         }
-        if (version && compareVersions(version, "v0.0.3") <= 0) {
+        if (!version || compareVersions(version, "v0.0.3") <= 0) {
             // migration to v0.0.4: add metadata column
             const tableInfo = await c.env.DB.prepare(
                 `PRAGMA table_info(raw_mails)`
@@ -189,11 +191,11 @@ export default {
             const hasMetadata = tableInfo.results?.some(
                 (col: any) => col.name === 'metadata'
             );
-            if (!hasMetadata) {
+            if (tableInfo.results?.length && !hasMetadata) {
                 await c.env.DB.exec(`ALTER TABLE raw_mails ADD COLUMN metadata TEXT;`);
             }
         }
-        if (version && compareVersions(version, "v0.0.4") <= 0) {
+        if (!version || compareVersions(version, "v0.0.4") <= 0) {
             // migration to v0.0.5: add source_meta column
             const tableInfo = await c.env.DB.prepare(
                 `PRAGMA table_info(address)`
@@ -201,7 +203,7 @@ export default {
             const hasSourceMeta = tableInfo.results?.some(
                 (col: any) => col.name === 'source_meta'
             );
-            if (!hasSourceMeta) {
+            if (tableInfo.results?.length && !hasSourceMeta) {
                 await c.env.DB.exec(`ALTER TABLE address ADD COLUMN source_meta TEXT;`);
                 await c.env.DB.exec(`CREATE INDEX IF NOT EXISTS idx_address_source_meta ON address(source_meta);`);
             }
@@ -210,7 +212,7 @@ export default {
             // migration to v0.0.6: add message_id index on raw_mails
             await c.env.DB.exec(`CREATE INDEX IF NOT EXISTS idx_raw_mails_message_id ON raw_mails(message_id);`);
         }
-        if (version && compareVersions(version, "v0.0.6") <= 0) {
+        if (!version || compareVersions(version, "v0.0.6") <= 0) {
             // migration to v0.0.7: add raw_blob column for gzip compressed email storage
             const tableInfo = await c.env.DB.prepare(
                 `PRAGMA table_info(raw_mails)`
@@ -218,13 +220,13 @@ export default {
             const hasRawBlob = tableInfo.results?.some(
                 (col: any) => col.name === 'raw_blob'
             );
-            if (!hasRawBlob) {
+            if (tableInfo.results?.length && !hasRawBlob) {
                 await c.env.DB.exec(`ALTER TABLE raw_mails ADD COLUMN raw_blob BLOB;`);
             }
         }
-        if (version && compareVersions(version, "v0.0.7") <= 0) {
+        if (!version || compareVersions(version, "v0.0.7") <= 0) {
             const tableInfo = await c.env.DB.prepare(`PRAGMA table_info(raw_mails)`).all();
-            if (!tableInfo.results?.some((col: any) => col.name === 'is_unread')) {
+            if (tableInfo.results?.length && !tableInfo.results.some((col: any) => col.name === 'is_unread')) {
                 await c.env.DB.exec(
                     `ALTER TABLE raw_mails ADD COLUMN is_unread INTEGER;`
                 );
@@ -253,6 +255,7 @@ export default {
                 .map((query) => query.trim())
                 .join(";\n");
             await c.env.DB.exec(query);
+            await ensureMailStorageSchema(c.env.DB);
             // Update the version in the settings table
             await utils.saveSetting(c, CONSTANTS.DB_VERSION_KEY, CONSTANTS.DB_VERSION);
             return c.json({

@@ -1,9 +1,10 @@
+import { RawMailRow } from "../models";
 import { Context } from 'hono'
 
 import i18n from '../i18n';
 import { getBooleanValue } from '../utils';
 import { handleMailListQuery, deleteAddressWithData, updateAddressUpdatedAt } from '../common'
-import { resolveRawEmailRow } from '../gzip'
+import { downloadRawMail, resolveRawEmailRow } from '../email/storage/read'
 import { getSendBalanceState } from './send_balance';
 import { renewAddressPasswordLoginToken } from '../address_auth';
 
@@ -43,9 +44,11 @@ const getMail = async (c: Context<HonoCustomType>) => {
     const { mail_id } = c.req.param();
     const result = await c.env.DB.prepare(
         `SELECT * FROM raw_mails where id = ? and address = ?`
-    ).bind(mail_id, address).first();
-    if (!result) return c.json(null);
-    return c.json(await resolveRawEmailRow(result));
+    ).bind(mail_id, address).first<RawMailRow>();
+    if (!result) return c.json(null, c.req.query('download') === 'eml' ? 404 : 200);
+    return c.req.query('download') === 'eml'
+            ? downloadRawMail(c.env, result)
+            : c.json(await resolveRawEmailRow(c.env, result));
 };
 
 const deleteMail = async (c: Context<HonoCustomType>) => {

@@ -3,7 +3,7 @@ import { CONSTANTS } from "../constants";
 import { AdminWebhookSettings, WebhookSettings, RawMailRow } from "../models";
 import { sendWebhook, compileWebhookFilter } from "../common";
 import { commonParseMail } from "../utils/mail_parser";
-import { resolveRawEmail } from "../gzip";
+import { rawMailParseContext } from "../email/storage/read";
 import { getWebhookAttachments } from '../utils/webhook';
 import i18n from "../i18n";
 
@@ -67,8 +67,7 @@ async function checkWebhookFilter(c: Context<HonoCustomType>): Promise<Response>
         `SELECT * FROM raw_mails WHERE address = ? ORDER BY RANDOM() LIMIT 1`
     ).bind(address).first<RawMailRow>();
     if (!mailRow) return c.text(msgs.MailNotFoundMsg, 404);
-    const raw = await resolveRawEmail(mailRow);
-    const parsedEmail = await commonParseMail({ rawEmail: raw });
+    const parsedEmail = await commonParseMail(await rawMailParseContext(c.env, mailRow));
     try {
         return c.json({ success: true, matched: match(parsedEmail, address) });
     } catch {
@@ -96,17 +95,17 @@ async function testWebhookSettings(c: Context<HonoCustomType>): Promise<Response
     if (requestedMailId !== undefined && !mailRow) {
         return c.text(msgs.MailNotFoundMsg, 404);
     }
-    const raw = mailRow ? await resolveRawEmail(mailRow) : "";
-    const parsedEmailContext: ParsedEmailContext = { rawEmail: raw };
+    const parsedEmailContext: ParsedEmailContext = mailRow
+        ? await rawMailParseContext(c.env, mailRow) : { rawEmail: "" };
     const parsedEmail = await commonParseMail(parsedEmailContext);
     const res = await sendWebhook(settings, {
         attachments: await getWebhookAttachments(c.env, mailRow, parsedEmail?.attachments),
-        id: mailId || "0",
+        id: String(mailId ?? 0),
         url: c.env.FRONTEND_URL ? `${c.env.FRONTEND_URL}?mail_id=${mailId}` : "",
         from: parsedEmail?.sender || "test@test.com",
         to: address,
         subject: parsedEmail?.subject || "test subject",
-        raw: raw || "test raw email",
+        raw: parsedEmailContext.rawEmail || "test raw email",
         parsedText: parsedEmail?.text || "test parsed text",
         parsedHtml: parsedEmail?.html || "test parsed html",
         aiExtract: null,

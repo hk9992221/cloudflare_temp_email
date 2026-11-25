@@ -13,6 +13,7 @@ import { forwardEmail } from "./forward";
 import { EmailRuleSettings } from "../models";
 import { CONSTANTS } from "../constants";
 import { deleteRawMail, storeRawMail } from "./storage";
+import { configuredBackend, MailStorageError, MAX_RAW_MAIL_BYTES, readBounded } from "./storage/r2";
 
 
 async function receiveEmail(
@@ -25,10 +26,20 @@ async function receiveEmail(
         console.log(`Reject message from ${message.from} to ${toAddress}`);
         return;
     }
-    const rawEmail = await new Response(message.raw).text();
-    const parsedEmailContext: ParsedEmailContext = {
-        rawEmail: rawEmail
-    };
+    const parsedEmailContext: ParsedEmailContext = { rawEmail: '' };
+    try {
+        if (configuredBackend(env) === 'r2') {
+            if (message.rawSize > MAX_RAW_MAIL_BYTES) throw new MailStorageError('MAIL_STORAGE_SIZE_LIMIT');
+            parsedEmailContext.rawBytes = await readBounded(message.raw, MAX_RAW_MAIL_BYTES);
+            parsedEmailContext.rawEmail = new TextDecoder().decode(parsedEmailContext.rawBytes);
+        } else {
+            parsedEmailContext.rawEmail = await new Response(message.raw).text();
+        }
+    } catch (error) {
+        rejectStorageFailure(message, error);
+        return;
+    }
+    const { rawEmail, rawBytes } = parsedEmailContext;
 
     // check if junk mail
     try {
@@ -70,23 +81,20 @@ async function receiveEmail(
 
     const message_id = message.headers.get("Message-ID");
     // save email
-    const storedMailId = await storeRawMail(
-        env, message.from, toAddress, message_id, parsedEmailContext.rawEmail
-    ).then(({ success, meta }) => {
-        if (!success) {
-            message.setReject(`Failed save message to ${toAddress}`);
-            console.error(`Failed save message from ${message.from} to ${toAddress}`);
-        }
-        return success ? meta.last_row_id : undefined;
-    }).catch((error) => {
-        console.error("save email error", error);
-        return undefined;
-    });
-    if (storedMailId) onStored?.();
+    let storedMailId: number;
+    try {
+        const result = await storeRawMail(env, message.from, toAddress, message_id, parsedEmailContext);
+        if (!result.success || !result.meta.last_row_id) throw new MailStorageError('MAIL_STORAGE_COMMIT_FAILED');
+        storedMailId = result.meta.last_row_id;
+    } catch (error) {
+        rejectStorageFailure(message, error);
+        return;
+    }
+    onStored?.();
 
     // forward email
     const { deleteOriginal: deleteAfterForward } = allowForward
-        ? await forwardEmail(message, env, rawEmail,
+        ? await forwardEmail(message, env, rawBytes ?? rawEmail,
             (targetMessage, onTargetStored) => receiveEmail(targetMessage, env, ctx, false, onTargetStored))
         : { deleteOriginal: false };
 
@@ -132,6 +140,12 @@ async function receiveEmail(
 
     const shouldDeleteMail = deleteAfterForward;
     if (shouldDeleteMail && storedMailId) await deleteRawMail(env, storedMailId, toAddress);
+}
+
+function rejectStorageFailure(message: ForwardableEmailMessage, error: unknown) {
+    const code = error instanceof MailStorageError ? error.code : 'MAIL_STORAGE_WRITE_FAILED';
+    console.error('mail storage rejected delivery:', code);
+    message.setReject(`Email could not be stored (${code})`);
 }
 
 async function email(message: ForwardableEmailMessage, env: Bindings, ctx: ExecutionContext): Promise<void> {

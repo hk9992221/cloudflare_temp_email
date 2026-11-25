@@ -215,6 +215,16 @@ export type RawMailRow = {
     address?: string;
     raw?: string;
     raw_blob?: unknown;
+    storage_backend?: 'd1' | 'r2';
+    r2_key?: string | null;
+    raw_encoding?: 'identity' | 'gzip' | null;
+    raw_size?: number | null;
+    stored_size?: number | null;
+    content_sha256?: string | null;
+    subject?: string | null;
+    sender?: string | null;
+    preview?: string | null;
+    attachment_count?: number | null;
     metadata?: string;
     is_unread?: number | null;
     created_at?: string;

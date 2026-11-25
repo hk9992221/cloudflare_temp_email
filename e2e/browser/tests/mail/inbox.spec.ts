@@ -496,3 +496,47 @@ for (const width of [1360, 320]) {
     }
   });
 }
+
+test('R2 inbox loads details on selection and downloads the original EML bytes', async ({ page }) => {
+  const { readFile } = await import('node:fs/promises');
+  const api = await apiRequest.newContext();
+  const mailbox = await createTestAddress(api, 'storage-browser');
+  const subject = 'Original EML bytes';
+  const raw = [
+    'From: sender@test.example.com', `To: ${mailbox.address}`, `Subject: ${subject}`,
+    'Content-Type: text/plain; charset=iso-8859-1', '', 'Caf',
+  ].join('\r\n');
+  const expected = Buffer.concat([Buffer.from(raw), Buffer.of(0xe9)]);
+  try {
+    const receipt = await api.post(`${WORKER_URL}/__test/receive_mail`, {
+      headers: { 'x-test-mail-storage': 'r2' },
+      data: {
+        from: 'sender@test.example.com', to: mailbox.address, raw,
+        raw_base64: expected.toString('base64'), record_telegram: true,
+      },
+    });
+    expect(await receipt.json()).toMatchObject({ success: true });
+    await page.addInitScript(() => {
+      localStorage.setItem('mailListView', 'true');
+      localStorage.setItem('mailListPreviewLineClamp', '1');
+    });
+    const summary = page.waitForResponse(response => response.url().includes('/api/mails?') &&
+      new URL(response.url()).searchParams.get('summary') === 'true');
+    await page.goto(`${FRONTEND_URL}/en/?jwt=${mailbox.jwt}`);
+    const { results } = await (await summary).json();
+    expect(results[0]).not.toHaveProperty('raw');
+    const item = page.getByRole('listitem').filter({ hasText: subject });
+    await expect(item).toBeVisible();
+    await expect(page.locator('.mail-content-renderer')).toHaveCount(0);
+    await item.click();
+    await page.getByRole('button', { name: 'More actions', exact: true }).click();
+    const download = page.waitForEvent('download');
+    await page.getByRole('link', { name: 'Download Mail' }).click();
+    const saved = await (await download).path();
+    expect(saved).not.toBeNull();
+    expect(await readFile(saved!)).toEqual(expected);
+  } finally {
+    await deleteAddress(api, mailbox.jwt);
+    await api.dispose();
+  }
+});

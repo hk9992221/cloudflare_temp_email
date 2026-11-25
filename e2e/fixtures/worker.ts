@@ -2,10 +2,13 @@ import { Hono } from 'hono';
 import worker from '../../worker/src/worker';
 import { CONSTANTS } from '../../worker/src/constants';
 import mailApi from './mail-api';
+import { inspectMailStorageTest, mailStorageTestBindings } from './mail-storage';
 
 const testApi = new Hono<HonoCustomType>();
 testApi.post('/seed_mail', c => mailApi.seedMail(c.req.raw, c.env));
-testApi.post('/receive_mail', c => mailApi.receiveMail(c.req.raw, c.env, c.executionCtx as ExecutionContext));
+testApi.post('/receive_mail', c => mailApi.receiveMail(c.req.raw,
+  mailStorageTestBindings(c.req.raw, c.env), c.executionCtx as ExecutionContext));
+testApi.on(['GET', 'POST'], '/mail_storage', c => inspectMailStorageTest(c.req.raw, c.env));
 testApi.post('/expire_redeem_code', async c => {
   const { code } = await c.req.json<{ code: string }>();
   const { meta } = await c.env.DB.prepare("UPDATE redeem_codes SET expires_at = '2020-01-01T00:00:00.000Z' WHERE code = ?")
@@ -64,7 +67,7 @@ app.all('*', async c => {
   }) : c.env.KV;
   const sitePasswords = c.req.header('x-test-site-passwords');
   const bindings = {
-    ...env, DB, KV,
+    ...mailStorageTestBindings(c.req.raw, { ...env, DB, KV }),
     ...(sitePasswords !== undefined ? { PASSWORDS: JSON.parse(sitePasswords) } : {}),
   };
   if (!c.req.header('x-test-await-background')) return worker.fetch(c.req.raw, bindings, c.executionCtx);

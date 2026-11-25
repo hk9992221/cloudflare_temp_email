@@ -1,14 +1,15 @@
 diff --git a/worker/src/utils/mail_parser.ts b/worker/src/utils/mail_parser.ts
-index 9b758f0..e2150b5 100644
 --- a/worker/src/utils/mail_parser.ts
 +++ b/worker/src/utils/mail_parser.ts
-@@ -17,29 +17,29 @@ export const commonParseMail = async (parsedEmailContext: ParsedEmailContext): P
+@@ -16,29 +16,29 @@
      }
      const raw_mail = parsedEmailContext.rawEmail;
      // NOTE: WASM parse email
 -    // try {
 -    //     const { parse_message_wrapper } = await import('mail-parser-wasm-worker');
--
++    if (!parsedEmailContext.rawBytes || !raw_mail.includes("\uFFFD")) try {
++        const { parse_message_wrapper } = await import('mail-parser-wasm-worker');
+
 -    //     const parsedEmail = parse_message_wrapper(raw_mail);
 -    //     parsedEmailContext.parsedEmail = {
 -    //         sender: parsedEmail.sender || "",
@@ -29,9 +30,6 @@ index 9b758f0..e2150b5 100644
 -    // } catch (e) {
 -    //     console.error("Failed use mail-parser-wasm-worker to parse email", e);
 -    // }
-+    try {
-+        const { parse_message_wrapper } = await import('mail-parser-wasm-worker');
-+
 +        const parsedEmail = parse_message_wrapper(raw_mail);
 +        parsedEmailContext.parsedEmail = {
 +            sender: parsedEmail.sender || "",
@@ -54,4 +52,4 @@ index 9b758f0..e2150b5 100644
 +    }
      try {
          const { default: PostalMime } = await import('postal-mime');
-         const parsedEmail = await PostalMime.parse(raw_mail);
+         const parsedEmail = parsedEmailContext.rawBytes
