@@ -3,6 +3,14 @@ import { createMimeMessage } from "mimetext";
 
 import { compressText } from "../gzip";
 import { getBooleanValue } from "../utils";
+import { commonParseMail } from "../utils/mail_parser";
+import {
+    abandonWriteIntent, activeWriteIntent, configuredBackend, finishWriteIntent, MailStorageError,
+    openWriteIntent, prepareObject, putObject, requireBucket, requireStorageSchema, storedObjectFields,
+    summarizeMail,
+} from "./storage/r2";
+
+type SaveResult = Pick<D1Result, 'success'> & { meta: Pick<D1Result['meta'], 'last_row_id'> };
 
 let rawMailTableColumns: Set<string> | undefined;
 
@@ -26,8 +34,13 @@ export const storeRawMail = async (
     source: string,
     address: string,
     messageId: string | null,
-    raw: string,
-): Promise<D1Result> => {
+    input: string | ParsedEmailContext,
+): Promise<SaveResult> => {
+    const mail = typeof input === 'string' ? { rawEmail: input } : input;
+    if (configuredBackend(env) === 'r2') {
+        return storeR2Mail(env, source, address, messageId, mail);
+    }
+    const raw = mail.rawEmail;
     const gzipEnabled = getBooleanValue(env.ENABLE_MAIL_GZIP);
     const readStatusEnabled = getBooleanValue(env.ENABLE_MAIL_READ_STATUS);
     const requiredColumns: string[] = [];
@@ -67,6 +80,38 @@ export const storeRawMail = async (
     return env.DB.prepare(
         `INSERT INTO raw_mails (source, address, raw, message_id, is_unread) VALUES (?, ?, ?, ?, 1)`
     ).bind(source, address, raw, messageId).run();
+}
+
+async function storeR2Mail(
+    env: Bindings, source: string, address: string, messageId: string | null, mail: ParsedEmailContext,
+): Promise<SaveResult> {
+    const bucket = requireBucket(env);
+    await requireStorageSchema(env);
+    const raw = mail.rawBytes ?? new TextEncoder().encode(mail.rawEmail).buffer as ArrayBuffer;
+    const { object, stored } = await prepareObject(env, raw);
+    const summary = summarizeMail(await commonParseMail(mail));
+    const key = object.r2_key;
+    if (!await openWriteIntent(env.DB, key)) throw new MailStorageError('MAIL_STORAGE_INTENT_FAILED');
+    try {
+        await putObject(bucket, object, stored);
+        const [insert] = await env.DB.batch([
+            env.DB.prepare(`INSERT INTO raw_mails (source, address, message_id, is_unread, storage_backend,
+                r2_key, raw_encoding, raw_size, stored_size, content_sha256, subject, sender, preview, attachment_count)
+                SELECT ?, ?, ?, ?, 'r2', ?, ?, ?, ?, ?, ?, ?, ?, ?
+                WHERE EXISTS (${activeWriteIntent})`).bind(source, address, messageId,
+                    getBooleanValue(env.ENABLE_MAIL_READ_STATUS) ? 1 : null,
+                    ...storedObjectFields(object, summary), key),
+            finishWriteIntent(env.DB, key),
+        ]);
+        if (!insert.success || insert.meta.changes !== 1) throw new MailStorageError('MAIL_STORAGE_COMMIT_FAILED');
+        return insert;
+    } catch (error) {
+        const committed = await env.DB.prepare('SELECT id FROM raw_mails WHERE r2_key = ?')
+            .bind(key).first<number>('id').catch(() => null);
+        if (committed) return { success: true, meta: { last_row_id: committed } };
+        await abandonWriteIntent(env.DB, key).catch(() => {});
+        throw error instanceof MailStorageError ? error : new MailStorageError('MAIL_STORAGE_COMMIT_FAILED');
+    }
 }
 
 export const deleteRawMail = async (

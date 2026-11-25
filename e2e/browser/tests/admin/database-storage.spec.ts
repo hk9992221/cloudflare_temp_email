@@ -35,3 +35,18 @@ test('persists the selected D1 plan and restores it after reload', async ({ page
   await expect(planSelect).toContainText('Workers Paid');
   await expect(storagePanel).toContainText('10.0 GB');
 });
+
+test('checks the R2 binding and previews D1 mail migration from database settings', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('adminAuth', 'e2e-admin-pass');
+    sessionStorage.setItem('adminTab', 'qucickSetup');
+  });
+  await page.goto(`${FRONTEND_URL}/en/admin`);
+  const panel = page.locator('.mail-storage');
+  await expect(panel.getByText('Incoming mail backend')).toBeVisible();
+  await expect(panel.getByText('Configured', { exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: 'Check configuration' }).click();
+  await expect(panel.getByText('Schema ready and R2 reachable.')).toBeVisible();
+  await panel.getByRole('button', { name: 'Preview migration' }).click();
+  await expect(panel.getByText(/eligible messages, with/)).toBeVisible();
+});

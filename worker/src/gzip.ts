@@ -30,19 +30,3 @@ export async function resolveRawEmail(row: RawMailRow): Promise<string> {
     }
     return row.raw ?? '';
 }
-
-/**
- * Resolve a single row: decompress raw_blob if present, strip raw_blob from result.
- */
-export async function resolveRawEmailRow(row: RawMailRow): Promise<RawMailRow> {
-    const raw = await resolveRawEmail(row);
-    const { raw_blob: _, ...rest } = row;
-    return { ...rest, raw };
-}
-
-/**
- * Batch resolve raw emails for list queries using Promise.all.
- */
-export async function resolveRawEmailList(rows: RawMailRow[]): Promise<RawMailRow[]> {
-    return Promise.all(rows.map(row => resolveRawEmailRow(row)));
-}

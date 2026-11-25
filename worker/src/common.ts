@@ -5,10 +5,12 @@ import { WorkerMailerOptions } from 'worker-mailer';
 import { getBooleanValue, getDomains, getStringArray, getIntValue, getUserRoles, getDefaultDomains, getAnotherWorkerList, hashPassword, getJsonObjectValue, getDomainMapValue, isDomainOrSubdomain, normalizeDomains, trimLower } from './utils';
 import { unbindTelegramByAddress } from './telegram_api/common';
 import { CONSTANTS } from './constants';
-import { AdminWebhookSettings, ExtractResult, WebhookMail, WebhookSettings } from './models';
+import { AdminWebhookSettings, ExtractResult, RawMailRow, WebhookMail, WebhookSettings } from './models';
 import i18n from './i18n';
 import { formatWebhookBody, getWebhookAttachments } from './utils/webhook';
 import { compileFilter, type FilterValues } from './utils/filter';
+import { publicMailRow, readLegacyMailBytes, resolveRawEmailRow } from './email/storage/read';
+import { MailStorageError, summarizeMail } from './email/storage/r2';
 import { commonParseMail } from './utils/mail_parser';
 import { isAddressExpiryEnabled, normalizeAddressExpiresAt, shouldRejectExpiryInput } from './utils/address_expiry';
 import {
@@ -643,28 +645,69 @@ export const hideObjectFields = <T extends Record<string, unknown>>(
     return filteredRow;
 }
 
+async function legacyListPreview(row: RawMailRow) {
+    if (row.raw == null && row.raw_blob == null) return undefined;
+    try {
+        const rawBytes = await readLegacyMailBytes(row, 512 * 1024);
+        return commonParseMail({ rawEmail: new TextDecoder().decode(rawBytes), rawBytes });
+    } catch {
+        // Older rows without a preview are still selectable. The detail endpoint
+        // reports read failures and retains the original data for diagnosis.
+        return undefined;
+    }
+}
+
 /**
- * handleListQuery variant for raw_mails: resolves raw_blob → raw after query.
+ * Build the legacy list or a metadata-only projection for inbox views.
  */
 export const handleMailListQuery = async (
     c: Context<HonoCustomType>,
     query: string, countQuery: string, params: string[],
     limit: string | number | undefined | null,
     offset: string | number | undefined | null,
-    orderBy?: string
+    orderBy?: string, allowSummary = true
 ): Promise<Response> => {
-    const { resolveRawEmailList } = await import('./gzip');
     const msgs = i18n.getMessagesbyContext(c);
     if (typeof limit === "string") limit = parseInt(limit);
     if (typeof offset === "string") offset = parseInt(offset);
     if (!limit || limit < 0 || limit > 100) return c.text(msgs.InvalidLimitMsg, 400);
     if (offset == null || offset == undefined || offset < 0) return c.text(msgs.InvalidOffsetMsg, 400);
     const orderClause = orderBy || 'id desc';
-    const resultsQuery = `${query} order by ${orderClause} limit ? offset ?`;
+    const summary = allowSummary && c.req.query('summary') === 'true';
+    let selection = query;
+    if (summary) {
+        const { results: columns } = await c.env.DB.prepare('PRAGMA table_info(raw_mails)').all<{ name: string }>();
+        const names = new Set(columns.map(column => column.name));
+        const alias = /^SELECT rm\.\*/.test(query) ? 'rm.' : '';
+        const field = (name: string) => names.has(name) ? alias + name : `NULL AS ${name}`;
+        const legacyContent = (name: string) => names.has(name)
+            ? `CASE WHEN length(CAST(${alias}${name} AS BLOB)) <= 262144 THEN ${alias}${name} END AS ${name}`
+            : `NULL AS ${name}`;
+        const projection = ['id', 'source', 'address', 'created_at', 'is_unread', 'storage_backend',
+            'subject', 'sender', 'preview', 'attachment_count', 'metadata'].map(field).concat(legacyContent('raw'), legacyContent('raw_blob'));
+        selection = query.replace(/^SELECT (?:rm\.)?\*/, `SELECT ${projection.join(', ')}`);
+    }
+    const resultsQuery = `${selection} order by ${orderClause} limit ? offset ?`;
     const { results } = await c.env.DB.prepare(resultsQuery).bind(
         ...params, limit, offset
-    ).all();
-    const resolvedResults = await resolveRawEmailList(results);
+    ).all<RawMailRow>();
+    const rawR2Size = results.reduce((bytes, row) =>
+        bytes + (row.storage_backend === 'r2' ? row.raw_size ?? 0 : 0), 0);
+    if (!summary && rawR2Size > 24 * 1024 * 1024) {
+        throw new MailStorageError('MAIL_STORAGE_LIST_SIZE_LIMIT');
+    }
+    const resolvedResults = [];
+    for (const row of results) {
+        if (summary) {
+            const { raw: _raw, ...visible } = publicMailRow(row);
+            const details = row.storage_backend === 'r2'
+                ? { subject: row.subject, sender: row.sender, preview: row.preview, attachment_count: row.attachment_count }
+                : summarizeMail(await legacyListPreview(row));
+            resolvedResults.push({ ...visible, ...details });
+        } else {
+            resolvedResults.push(await resolveRawEmailRow(c.env, row));
+        }
+    }
     const count = offset == 0 ? await c.env.DB.prepare(
         countQuery
     ).bind(...params).first("count") : 0;

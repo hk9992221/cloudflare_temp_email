@@ -32,13 +32,17 @@ const SendMail = defineAsyncComponent(() => {
 
 const { t } = useScopedI18n('views.Index')
 
-const fetchMailData = async (limit, offset) => {
+const fetchMailDetail = id => api.fetch(`/api/mail/${id}`, { showLoading: false });
+const fetchRawMail = id => api.fetch(`/api/mail/${id}?download=eml`,
+    { showLoading: false, responseType: 'blob' });
+
+const fetchMailData = async (limit, offset, summary) => {
   if (mailIdQuery.value > 0) {
     const singleMail = await api.fetch(`/api/mail/${mailIdQuery.value}`);
     if (singleMail) return { results: [singleMail], count: 1 };
     return { results: [], count: 0 };
   }
-  return await api.fetch(`/api/mails?limit=${limit}&offset=${offset}`);
+  return await api.fetch(`/api/mails?limit=${limit}&offset=${offset}&summary=${summary}`);
 };
 
 const deleteMail = async (curMailId) => {
@@ -135,7 +139,8 @@ onMounted(() => {
           </div>
           <MailBox :key="mailBoxKey" :showEMailTo="false" :showReply="openSettings.enableSendMail" :showSaveS3="openSettings.isS3Enabled"
             :saveToS3="saveToS3" :enableUserDeleteEmail="openSettings.enableUserDeleteEmail"
-            :fetchMailData="fetchMailData" :deleteMail="deleteMail" :showFilterInput="true"
+            :fetchMailData="fetchMailData"
+            :fetchMailDetail="fetchMailDetail" :fetchRawMail="fetchRawMail" :deleteMail="deleteMail" :showFilterInput="true"
             :enableMailReadStatus="openSettings.enableMailReadStatus" :updateMailReadStatus="updateMailReadStatus" />
         </n-tab-pane>
         <n-tab-pane v-if="openSettings.enableSendMail" name="sendbox" :tab="t('sendbox')">

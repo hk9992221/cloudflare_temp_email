@@ -1,6 +1,8 @@
+import { RawMailRow } from "../models";
 import { Context } from "hono";
 import i18n from "../i18n";
 import { handleMailListQuery } from "../common";
+import { downloadRawMail, resolveRawEmailRow } from "../email/storage/read";
 import { getBooleanValue } from "../utils";
 
 export default {
@@ -22,6 +24,17 @@ export default {
             `SELECT count(*) as count${fromQuery}`,
             filterParams, limit, offset, 'rm.id desc'
         );
+    },
+    getMail: async (c: Context<HonoCustomType>) => {
+        const { user_id } = c.get("userPayload");
+        const row = await c.env.DB.prepare(`SELECT rm.* FROM raw_mails rm
+            JOIN address a ON a.name = rm.address
+            JOIN users_address ua ON ua.address_id = a.id
+            WHERE rm.id = ? AND ua.user_id = ?`).bind(c.req.param('id'), user_id).first<RawMailRow>();
+        if (!row) return c.json(null, 404);
+        return c.req.query('download') === 'eml'
+            ? downloadRawMail(c.env, row)
+            : c.json(await resolveRawEmailRow(c.env, row));
     },
     deleteMail: async (c: Context<HonoCustomType>) => {
         const msgs = i18n.getMessagesbyContext(c);

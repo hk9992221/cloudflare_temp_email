@@ -61,8 +61,13 @@ const apiFetch = async (path, options = {}) => {
         const initialResponse = await instance.request(path, {
             method: options.method || 'GET',
             data: options.body || null,
+            responseType: options.responseType,
             headers,
         });
+        if (initialResponse.status >= 300 && initialResponse.data instanceof Blob) {
+            const content = await initialResponse.data.text();
+            initialResponse.data = initialResponse.data.type.includes('application/json') ? JSON.parse(content) : content;
+        }
         const response = await interceptResponse(path, initialResponse);
         if (ErrorCode.isAdminAuthError(response)) {
             showAdminAuth.value = true;

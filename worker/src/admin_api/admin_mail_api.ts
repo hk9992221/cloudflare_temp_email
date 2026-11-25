@@ -1,6 +1,7 @@
+import { RawMailRow } from "../models";
 import { Context } from "hono";
 import { handleMailListQuery } from "../common";
-import { resolveRawEmailRow } from "../gzip";
+import { downloadRawMail, resolveRawEmailRow } from "../email/storage/read";
 
 export default {
     getMails: async (c: Context<HonoCustomType>) => {
@@ -29,9 +30,11 @@ export default {
         const { id } = c.req.param();
         const result = await c.env.DB.prepare(
             `SELECT * FROM raw_mails WHERE id = ?`
-        ).bind(id).first();
-        if (!result) return c.json(null);
-        return c.json(await resolveRawEmailRow(result));
+        ).bind(id).first<RawMailRow>();
+        if (!result) return c.json(null, c.req.query('download') === 'eml' ? 404 : 200);
+        return c.req.query('download') === 'eml'
+            ? downloadRawMail(c.env, result)
+            : c.json(await resolveRawEmailRow(c.env, result));
     },
     deleteMail: async (c: Context<HonoCustomType>) => {
         const { id } = c.req.param();

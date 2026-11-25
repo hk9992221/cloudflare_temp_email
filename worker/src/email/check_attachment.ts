@@ -53,6 +53,7 @@ export const remove_attachment_if_need = async (
         /^From:.*\r?\n/m,
         () => fromHeaders.map(header => `From: ${header.value}\r\n`).join('')
     );
+    parsedEmailContext.rawBytes = undefined;
     parsedEmailContext.parsedEmail = {
         ...parsedEmail,
         attachments: [],

@@ -3,10 +3,18 @@ import { cleanup } from './common'
 import { CONSTANTS } from './constants'
 import { getBooleanValue, getJsonSetting } from './utils';
 import { CleanupSettings } from './models';
+import { collectMailObjects } from './email/storage/gc';
+import { MailStorageError } from './email/storage/r2';
 import { executeCustomSqlCleanup } from './admin_api/cleanup_api';
 
 export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: any) {
     console.log("Scheduled event: ", event);
+    if (env.MAIL_STORAGE) {
+        ctx.waitUntil(collectMailObjects(env).catch(error => {
+            console.error('mail storage scheduled GC:', error instanceof MailStorageError
+                ? error.code : 'MAIL_STORAGE_GC_FAILED');
+        }));
+    }
     if (getBooleanValue(env.ENABLE_ADDRESS_EXPIRY)) {
         try {
             await cleanup(

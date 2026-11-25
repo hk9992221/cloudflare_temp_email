@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick } from "vue";
+import { ref, computed, watch, nextTick, onBeforeUnmount } from "vue";
 import { useThemeVars } from 'naive-ui';
 import { useScopedI18n } from '@/i18n/app'
 import { CloudDownloadRound, ReplyFilled, ForwardFilled, FullscreenRound, ImageRound, AttachFileRound,
@@ -80,6 +80,9 @@ const showMoreActions = ref(false);
 const showMailDetails = ref(false);
 const moreActionsButton = ref(null);
 const downloadMailButton = ref(null);
+const emlUrl = computed(() => getDownloadEmlUrl(props.mail.rawBytes ?? props.mail.raw));
+watch(emlUrl, (_next, previous) => URL.revokeObjectURL(previous));
+onBeforeUnmount(() => URL.revokeObjectURL(emlUrl.value));
 
 watch(showMoreActions, async (show) => {
   if (!show) return;
@@ -220,7 +223,7 @@ const handleSaveToS3 = async (filename, blob) => {
             </template>
             <div class="mail-more-actions" @keydown.esc.stop.prevent="closeMoreActions">
               <n-button ref="downloadMailButton" tag="a" target="_blank" block quaternary size="small" :download="mail.id + '.eml'"
-                :href="getDownloadEmlUrl(mail.raw)" @click="closeMoreActions">
+                :href="emlUrl" @click="closeMoreActions">
                 <template #icon><n-icon :component="CloudDownloadRound" /></template>
                 {{ t('downloadMail') }}
               </n-button>

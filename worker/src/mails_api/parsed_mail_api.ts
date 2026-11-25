@@ -1,12 +1,13 @@
+import { RawMailRow } from "../models";
 import { Context } from 'hono'
 
 import { handleMailListQuery, updateAddressUpdatedAt } from '../common'
 import { commonParseMail } from '../utils/mail_parser'
-import { resolveRawEmailRow } from '../gzip'
+import { publicMailRow, rawMailParseContext } from '../email/storage/read'
 
-const toParsedMailRow = async (row: Record<string, unknown>): Promise<Record<string, unknown>> => {
+const toParsedMailRow = async (row: Record<string, unknown>, context?: ParsedEmailContext): Promise<Record<string, unknown>> => {
     const raw = typeof row.raw === 'string' ? row.raw : '';
-    const parsed = raw ? await commonParseMail({ rawEmail: raw }) : undefined;
+    const parsed = await commonParseMail(context ?? { rawEmail: raw });
     const { raw: _raw, ...rest } = row;
     return {
         ...rest,
@@ -31,11 +32,12 @@ const listParsedMails = async (c: Context<HonoCustomType>) => {
     const listRes = await handleMailListQuery(c,
         `SELECT * FROM raw_mails where address = ?`,
         `SELECT count(*) as count FROM raw_mails where address = ?`,
-        [address], limit, offset
+        [address], limit, offset, undefined, false
     );
     if (listRes.status !== 200) return listRes;
     const { results, count } = await listRes.json() as { results: Record<string, unknown>[], count: number };
-    const parsed = await Promise.all(results.map(toParsedMailRow));
+    const parsed = [];
+    for (const row of results) parsed.push(await toParsedMailRow(row));
     return c.json({ results: parsed, count });
 };
 
@@ -44,10 +46,9 @@ const getParsedMail = async (c: Context<HonoCustomType>) => {
     const { mail_id } = c.req.param();
     const row = await c.env.DB.prepare(
         `SELECT * FROM raw_mails where id = ? and address = ?`
-    ).bind(mail_id, address).first();
+    ).bind(mail_id, address).first<RawMailRow>();
     if (!row) return c.json(null);
-    const resolved = await resolveRawEmailRow(row);
-    return c.json(await toParsedMailRow(resolved as Record<string, unknown>));
+    return c.json(await toParsedMailRow(publicMailRow(row), await rawMailParseContext(c.env, row)));
 };
 
 export default { listParsedMails, getParsedMail };

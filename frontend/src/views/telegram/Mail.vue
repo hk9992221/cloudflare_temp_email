@@ -20,15 +20,17 @@ watch(telegramApp, async () => {
 
 const fetchMailData = async () => {
     try {
-        const res = await api.fetch(`/telegram/get_mail`, {
+        const credentials = {
             method: 'POST',
-            body: JSON.stringify({
-                initData: telegramApp.value.initData,
-                mailId: route.query.mail_id
-            })
-        });
+            body: JSON.stringify({ initData: telegramApp.value.initData, mailId: route.query.mail_id }),
+        };
+        const res = await api.fetch('/telegram/get_mail', credentials);
+        if (!res) return {};
         loading.value = true;
-        return await processItem(res);
+        const rawBytes = res.raw.includes('�')
+            ? await (await api.fetch('/telegram/get_mail?download=eml', { ...credentials, responseType: 'blob' })).arrayBuffer()
+            : undefined;
+        return await processItem(res, rawBytes);
     }
     catch (error) {
         console.error(error);

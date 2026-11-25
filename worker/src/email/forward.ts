@@ -52,7 +52,7 @@ function matchAddressPatterns(
 async function forwardToAddress(
     message: ForwardableEmailMessage,
     env: Bindings,
-    rawEmail: string,
+    rawEmail: string | ArrayBuffer,
     target: string,
     receiveMail: ReceiveMail
 ): Promise<boolean> {
@@ -68,13 +68,14 @@ async function forwardToAddress(
 
         const rejections: string[] = [];
         const deliveryResult = { stored: false };
-        const raw = new TextEncoder().encode(rawEmail);
+        const raw = typeof rawEmail === 'string' ? new TextEncoder().encode(rawEmail) : rawEmail;
         await receiveMail({
             from: message.from,
             to: address,
             headers: new Headers(message.headers),
             raw: new Response(raw).body!,
             rawSize: raw.byteLength,
+            canBeForwarded: message.canBeForwarded,
             setReject: reason => { rejections.push(reason); },
             forward: message.forward.bind(message),
             reply: message.reply.bind(message),
@@ -113,7 +114,7 @@ async function forwardToGlobalAddresses(
 async function forwardByRules(
     message: ForwardableEmailMessage,
     env: Bindings,
-    rawEmail: string,
+    rawEmail: string | ArrayBuffer,
     receiveMail: ReceiveMail
 ): Promise<{ deleteOriginal: boolean }> {
     const deleteOriginalResults: boolean[] = [];
@@ -184,7 +185,7 @@ async function forwardByRules(
 async function forwardEmail(
     message: ForwardableEmailMessage,
     env: Bindings,
-    rawEmail: string,
+    rawEmail: string | ArrayBuffer,
     receiveMail: ReceiveMail
 ): Promise<{ deleteOriginal: boolean }> {
     // 全局转发
