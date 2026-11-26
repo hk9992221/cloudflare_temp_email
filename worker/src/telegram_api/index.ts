@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
-import { ServerResponse } from 'node:http'
-import { Writable } from 'node:stream'
+import { createHmac, timingSafeEqual } from 'node:crypto'
+import { Buffer } from 'node:buffer'
 
 import { newTelegramBot, initTelegramBotCommands, sendMailToTelegram } from './telegram'
 import settings from './settings'
@@ -9,6 +9,9 @@ import i18n from '../i18n'
 
 export const api = new Hono<HonoCustomType>();
 export { sendMailToTelegram }
+
+const telegramWebhookSecret = (token: string) =>
+    createHmac('sha256', token).update('cloudflare-temp-email:telegram-webhook:v1').digest('hex');
 
 api.use("/telegram/*", async (c, next) => {
     const msgs = i18n.getMessagesbyContext(c);
@@ -34,17 +37,21 @@ api.use("/admin/telegram/*", async (c, next) => {
 
 api.post("/telegram/webhook", async (c) => {
     const token = c.env.TELEGRAM_BOT_TOKEN;
-    const bot = newTelegramBot(c, token);
-    let body = null;
-    const res = new Writable();
-    Object.assign(res, {
-        headersSent: false,
-        setHeader: (name: string, value: string) => c.header(name, value),
-        end: (data: any) => body = data,
-    });
-    const reqJson = await c.req.json();
-    await bot.handleUpdate(reqJson, res as ServerResponse);
-    return c.body(body);
+    const header = c.req.header('X-Telegram-Bot-Api-Secret-Token');
+    if (!header || !/^[a-f0-9]{64}$/.test(header)
+        || !timingSafeEqual(Buffer.from(header), Buffer.from(telegramWebhookSecret(token)))) {
+        return c.text('Unauthorized', 401);
+    }
+    const reqJson = await c.req.json().catch(() => null);
+    if (!Number.isSafeInteger(reqJson?.update_id)) return c.text('Invalid update', 400);
+    try {
+        // An actual sendMessage response is required to associate ForceReply prompts.
+        await newTelegramBot(c, token).handleUpdate(reqJson);
+        return c.body(null, 200);
+    } catch {
+        console.error('Telegram webhook update failed');
+        return c.text('Telegram update failed', 500);
+    }
 });
 
 api.post("/admin/telegram/init", async (c) => {
@@ -53,8 +60,13 @@ api.post("/admin/telegram/init", async (c) => {
     const webhookUrl = `https://${domain}/telegram/webhook`;
     console.log(`setting webhook to ${webhookUrl}`);
     const bot = newTelegramBot(c, token);
-    await bot.telegram.setWebhook(webhookUrl)
-    await initTelegramBotCommands(c, bot);
+    try {
+        await bot.telegram.setWebhook(webhookUrl, { secret_token: telegramWebhookSecret(token) });
+        await initTelegramBotCommands(c, bot);
+    } catch {
+        console.error('Telegram webhook initialization failed');
+        return c.text(i18n.getMessagesbyContext(c).TgConversationErrorMsg, 502);
+    }
     return c.json({
         message: "webhook set successfully",
     });

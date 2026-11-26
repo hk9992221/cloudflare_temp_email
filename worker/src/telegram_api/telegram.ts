@@ -1,13 +1,16 @@
 
 import { Context } from "hono";
 import { Telegraf, Context as TgContext, Markup } from "telegraf";
-import { callbackQuery } from "telegraf/filters";
+import { callbackQuery, message } from "telegraf/filters";
 
 import { CONSTANTS } from "../constants";
-import { getBooleanValue, getDomains, getJsonObjectValue, trimLower, htmlToText } from '../utils';
+import { getBooleanValue, getJsonObjectValue, htmlToText } from '../utils';
 import { TelegramSettings } from "./settings";
 import { sendTelegramAttachments } from "./tg_file_upload";
-import { bindTelegramAddress, deleteTelegramAddress, jwtListToAddressData, tgUserNewAddress, unbindTelegramAddress, unbindTelegramByAddress } from "./common";
+import { jwtListToAddressData } from "./common";
+import { getTelegramCommands, telegramCommandHandlers } from "./commands";
+import { isConversationCallback, TelegramConversationManager } from "./conversation";
+import type { CommandContext, CommandReply } from "./conversation";
 import { commonParseMail } from "../utils/mail_parser";
 import { rawMailParseContext } from "../email/storage/read";
 import { UserFromGetMe } from "telegraf/types";
@@ -34,46 +37,6 @@ const getTgMessages = async (
     }
     return i18n.getMessages(c.env.DEFAULT_LANG || 'zh');
 };
-
-// Bilingual command descriptions with full usage instructions
-const COMMANDS = [
-    {
-        command: "start",
-        description: "开始使用 | Get started"
-    },
-    {
-        command: "new",
-        description: "新建邮箱, /new <name>@<domain>, name[a-z0-9]有效, 为空随机生成, @domain可选 | Create address, /new <name>@<domain>, name[a-z0-9] valid, empty=random, @domain optional"
-    },
-    {
-        command: "address",
-        description: "查看邮箱地址列表 | View address list"
-    },
-    {
-        command: "bind",
-        description: "绑定邮箱, /bind <邮箱地址凭证> | Bind address, /bind <credential>"
-    },
-    {
-        command: "unbind",
-        description: "解绑邮箱, /unbind <邮箱地址> | Unbind address, /unbind <address>"
-    },
-    {
-        command: "delete",
-        description: "删除邮箱, /delete <邮箱地址> | Delete address, /delete <address>"
-    },
-    {
-        command: "mails",
-        description: "查看邮件, /mails <邮箱地址>, 不输入地址默认第一个 | View mails, /mails <address>, default first if empty"
-    },
-    {
-        command: "cleaninvalidaddress",
-        description: "清理无效地址 | Clean invalid addresses"
-    },
-    {
-        command: "lang",
-        description: "设置语言 /lang <zh|en> | Set language /lang <zh|en>"
-    },
-]
 
 const formatAiExtractForTelegram = (
     msgs: LocaleMessages,
@@ -125,306 +88,124 @@ const formatAiExtractForTelegram = (
     return `${msgs.TgAiExtractResultMsg}\n${label}: ${result}${displayText}\n\n`;
 }
 
-export const getTelegramCommands = (c: Context<HonoCustomType>) => {
-    return getBooleanValue(c.env.TG_ALLOW_USER_LANG)
-        ? COMMANDS
-        : COMMANDS.filter(cmd => cmd.command !== "lang");
-}
+const readTelegramMail = async (
+    c: Context<HonoCustomType>, { userId, msgs }: CommandContext,
+    query: string | number, mailIndex: number,
+): Promise<CommandReply> => {
+    const jwtList = await c.env.KV.get<string[]>(`${CONSTANTS.TG_KV_PREFIX}:${userId}`, 'json') || [];
+    const { addressIdMap } = await jwtListToAddressData(c, jwtList, msgs);
+    const addresses = Object.keys(addressIdMap);
+    const queryAddress = typeof query === 'number' ? addresses.find(address => addressIdMap[address] === query)
+        : query || addresses[0];
+    if (!queryAddress || !(queryAddress in addressIdMap)) {
+        return { text: `${msgs.TgNotBoundAddressMsg} ${typeof query === 'string' ? query : ''}`.trim() };
+    }
+    const addressId = addressIdMap[queryAddress];
+    const dbAddressId = await c.env.DB.prepare('SELECT id FROM address WHERE id = ?')
+        .bind(addressId).first('id');
+    if (!dbAddressId) return { text: msgs.TgInvalidAddressMsg };
+    const mailRow = await c.env.DB.prepare(
+        'SELECT * FROM raw_mails WHERE address = ? ORDER BY id DESC LIMIT 1 OFFSET ?'
+    ).bind(queryAddress, mailIndex).first<RawMailRow>();
+    const mailContext = mailRow ? await rawMailParseContext(c.env, mailRow) : undefined;
+    const { mail } = mailContext
+        ? await parseMail(msgs, mailContext, queryAddress, mailRow?.created_at, mailRow?.metadata)
+        : { mail: msgs.TgNoMoreMailsMsg };
+    const settings = await c.env.KV.get<TelegramSettings>(CONSTANTS.TG_KV_SETTINGS_KEY, 'json');
+    const miniAppButtons = [];
+    if (settings?.miniAppUrl && mailRow?.id) {
+        const url = new URL(settings.miniAppUrl);
+        url.pathname = '/telegram_mail';
+        url.searchParams.set('mail_id', String(mailRow.id));
+        miniAppButtons.push(Markup.button.webApp(msgs.TgViewMailBtnMsg, url.toString()));
+    }
+    return { text: mail || msgs.TgNoMailMsg, ...Markup.inlineKeyboard([
+        Markup.button.callback(msgs.TgPrevBtnMsg, `mail:${addressId}:${mailIndex - 1}`, mailIndex <= 0),
+        ...miniAppButtons,
+        Markup.button.callback(msgs.TgNextBtnMsg, `mail:${addressId}:${mailIndex + 1}`, !mailContext),
+    ]) };
+};
 
 export function newTelegramBot(c: Context<HonoCustomType>, token: string): Telegraf {
     const bot = new Telegraf(token);
     const botInfo = getJsonObjectValue<UserFromGetMe>(c.env.TG_BOT_INFO);
-    if (botInfo) {
-        bot.botInfo = botInfo;
-    }
+    if (botInfo) bot.botInfo = botInfo;
+    bot.catch(() => { throw new Error('Telegram update processing failed'); });
+
+    const authorize = async (userId: string) => {
+        const settings = await c.env.KV.get<TelegramSettings>(CONSTANTS.TG_KV_SETTINGS_KEY, 'json');
+        return !settings?.enableAllowList || settings.allowList.includes(userId);
+    };
+    const messages = (ctx: TgContext) => getTgMessages(c, ctx);
+    const commands = telegramCommandHandlers(c, (context, address, index) => readTelegramMail(c, context, address, index));
+    const manager = new TelegramConversationManager(c.env.DB, commands, messages, authorize, (text) =>
+        ['zh', 'en'].some(lang => text.endsWith(i18n.getMessages(lang).TgConversationTextHelpMsg)));
 
     bot.use(async (ctx, next) => {
-        // check if in private chat
-        if (ctx.chat?.type !== "private") {
+        try {
+            // Keep all command and mailbox operations restricted to private chats.
+            if (ctx.chat?.type !== 'private' || !ctx.from || !await authorize(String(ctx.from.id))) {
+                const msgs = await messages(ctx);
+                if (ctx.callbackQuery) await ctx.answerCbQuery(msgs.TgNoPermissionMsg);
+                else if (ctx.chat?.type === 'private') await ctx.reply(msgs.TgNoPermissionMsg);
+                return;
+            }
+            await next();
+        } catch {
+            // Telegram errors can contain request payloads such as credentials.
+            console.error('Telegram command processing failed');
+            const msgs = i18n.getMessages(c.env.DEFAULT_LANG || 'zh');
+            if (ctx.callbackQuery) {
+                await ctx.answerCbQuery(msgs.TgConversationErrorMsg).catch(() => undefined);
+            }
+            if (ctx.chat?.type === 'private') await ctx.reply(msgs.TgConversationErrorMsg).catch(() => undefined);
+        }
+    });
+
+    bot.on(callbackQuery('data'), async ctx => {
+        const { data, message } = ctx.callbackQuery;
+        if (isConversationCallback(data)) {
+            await manager.callback(ctx, data, message?.message_id,
+                message && ('edit_date' in message ? message.edit_date ?? message.date : message.date));
             return;
         }
-
-        const userId = ctx?.message?.from?.id || ctx.callbackQuery?.message?.chat?.id;
-        if (!userId) {
-            const msgs = await getTgMessages(c, ctx);
-            return await ctx.reply(msgs.TgUnableGetUserInfoMsg);
-        }
-
-        const settings = await c.env.KV.get<TelegramSettings>(CONSTANTS.TG_KV_SETTINGS_KEY, "json");
-        if (settings?.enableAllowList
-            && !settings.allowList.includes(userId.toString())
-        ) {
-            const msgs = await getTgMessages(c, ctx);
-            return await ctx.reply(msgs.TgNoPermissionMsg);
-        }
+        // Keep already-sent mail pagination buttons usable.
+        const current = /^mail:(\d+):(\d+)$/.exec(data);
+        const legacy = current ? null : /^mail_(.+)_(\d+)$/.exec(data);
+        await ctx.answerCbQuery();
+        if (!current && !legacy) return;
+        const index = Number((current ?? legacy)![2]);
+        if (!message || !Number.isSafeInteger(index) || index >= Number.MAX_SAFE_INTEGER) return;
+        const msgs = await messages(ctx);
+        const result = await readTelegramMail(c, { userId: String(ctx.from.id), msgs },
+            current ? Number(current[1]) : legacy![1], index);
         try {
-            await next();
-        } catch (error) {
-            console.error(`Error: ${error}`);
-            return await ctx.reply(`Error: ${error}`);
-        }
-    })
-
-    bot.command("start", async (ctx: TgContext) => {
-        const msgs = await getTgMessages(c, ctx);
-        const prefix = trimLower(c.env.PREFIX)
-        const domains = getDomains(c);
-        const commands = getTelegramCommands(c);
-        return await ctx.reply(
-            `${msgs.TgWelcomeMsg}\n\n`
-            + (prefix ? `${msgs.TgCurrentPrefixMsg} ${prefix}\n` : '')
-            + `${msgs.TgCurrentDomainsMsg} ${JSON.stringify(domains)}\n`
-            + `${msgs.TgAvailableCommandsMsg}\n`
-            + commands.map(cmd => `/${cmd.command}: ${cmd.description}`).join("\n")
-        );
-    });
-
-    bot.command("new", async (ctx: TgContext) => {
-        const msgs = await getTgMessages(c, ctx);
-        const userId = ctx?.message?.from?.id;
-        if (!userId) {
-            return await ctx.reply(msgs.TgUnableGetUserInfoMsg);
-        }
-        try {
-            // @ts-ignore
-            const address = ctx?.message?.text.slice("/new".length).trim();
-            const res = await tgUserNewAddress(c, userId.toString(), address, msgs);
-            return await ctx.reply(`${msgs.TgCreateSuccessMsg}\n`
-                + `${msgs.TgAddressMsg} ${res.address}\n`
-                + (res.password ? `${msgs.TgPasswordMsg} \`${res.password}\`\n` : '')
-                + `${msgs.TgCredentialMsg} \`${res.jwt}\`\n`,
-                {
-                    parse_mode: "Markdown"
-                }
-            );
-        } catch (e) {
-            return await ctx.reply(`${msgs.TgCreateFailedMsg} ${(e as Error).message}`);
+            await ctx.editMessageText(result.text, { reply_markup: result.reply_markup ?? { inline_keyboard: [] } });
+        } catch {
+            await ctx.reply(result.text, { reply_markup: result.reply_markup });
         }
     });
 
-    bot.command("bind", async (ctx: TgContext) => {
-        const msgs = await getTgMessages(c, ctx);
-        const userId = ctx?.message?.from?.id;
-        if (!userId) {
-            return await ctx.reply(msgs.TgUnableGetUserInfoMsg);
-        }
-        try {
-            // @ts-ignore
-            const jwt = ctx?.message?.text.slice("/bind".length).trim();
-            if (!jwt) {
-                return await ctx.reply(msgs.TgPleaseInputCredentialMsg);
-            }
-            const address = await bindTelegramAddress(c, userId.toString(), jwt, msgs);
-            return await ctx.reply(`${msgs.TgBindSuccessMsg}\n`
-                + `${msgs.TgAddressMsg} ${address}`
-            );
-        }
-        catch (e) {
-            return await ctx.reply(`${msgs.TgBindFailedMsg} ${(e as Error).message}`);
-        }
-    });
-
-    bot.command("unbind", async (ctx: TgContext) => {
-        const msgs = await getTgMessages(c, ctx);
-        const userId = ctx?.message?.from?.id;
-        if (!userId) {
-            return await ctx.reply(msgs.TgUnableGetUserInfoMsg);
-        }
-        try {
-            // @ts-ignore
-            const address = ctx?.message?.text.slice("/unbind".length).trim();
-            if (!address) {
-                return await ctx.reply(msgs.TgPleaseInputAddressMsg);
-            }
-            await unbindTelegramAddress(c, userId.toString(), address);
-            return await ctx.reply(`${msgs.TgUnbindSuccessMsg}\n${msgs.TgAddressMsg} ${address}`
-            );
-        }
-        catch (e) {
-            return await ctx.reply(`${msgs.TgUnbindFailedMsg} ${(e as Error).message}`);
-        }
-    })
-
-    bot.command("delete", async (ctx: TgContext) => {
-        const msgs = await getTgMessages(c, ctx);
-        const userId = ctx?.message?.from?.id;
-        if (!userId) {
-            return await ctx.reply(msgs.TgUnableGetUserInfoMsg);
-        }
-        try {
-            // @ts-ignore
-            const address = ctx?.message?.text.slice("/delete".length).trim();
-            if (!address) {
-                return await ctx.reply(msgs.TgPleaseInputAddressMsg);
-            }
-            await deleteTelegramAddress(c, userId.toString(), address, msgs);
-            return await ctx.reply(`${msgs.TgDeleteSuccessMsg} ${address}`);
-        } catch (e) {
-            return await ctx.reply(`${msgs.TgDeleteFailedMsg} ${(e as Error).message}`);
-        }
-    });
-
-    bot.command("address", async (ctx) => {
-        const msgs = await getTgMessages(c, ctx);
-        const userId = ctx?.message?.from?.id;
-        if (!userId) {
-            return await ctx.reply(msgs.TgUnableGetUserInfoMsg);
-        }
-        try {
-            const jwtList = await c.env.KV.get<string[]>(`${CONSTANTS.TG_KV_PREFIX}:${userId}`, 'json') || [];
-            const { addressList } = await jwtListToAddressData(c, jwtList, msgs);
-            return await ctx.reply(`${msgs.TgAddressListMsg}\n\n`
-                + addressList.map(a => `${msgs.TgAddressMsg} ${a}`).join("\n")
-            );
-        } catch (e) {
-            return await ctx.reply(`${msgs.TgGetAddressFailedMsg} ${(e as Error).message}`);
-        }
-    });
-
-    bot.command("cleaninvalidaddress", async (ctx: TgContext) => {
-        const msgs = await getTgMessages(c, ctx);
-        const userId = ctx?.message?.from?.id;
-        if (!userId) {
-            return await ctx.reply(msgs.TgUnableGetUserInfoMsg);
-        }
-        try {
-            const jwtList = await c.env.KV.get<string[]>(`${CONSTANTS.TG_KV_PREFIX}:${userId}`, 'json') || [];
-            const { invalidJwtList } = await jwtListToAddressData(c, jwtList, msgs);
-            const newJwtList = jwtList.filter(jwt => !invalidJwtList.includes(jwt));
-            await c.env.KV.put(`${CONSTANTS.TG_KV_PREFIX}:${userId}`, JSON.stringify(newJwtList));
-            const { addressList } = await jwtListToAddressData(c, newJwtList, msgs);
-            return await ctx.reply(`${msgs.TgCleanSuccessMsg}\n\n`
-                + `${msgs.TgCurrentAddressListMsg}\n\n`
-                + addressList.map(a => `${msgs.TgAddressMsg} ${a}`).join("\n")
-            );
-        } catch (e) {
-            return await ctx.reply(`${msgs.TgCleanFailedMsg} ${(e as Error).message}`);
-        }
-    });
-
-    bot.command("lang", async (ctx: TgContext) => {
-        const userId = ctx?.message?.from?.id;
-        if (!userId) {
-            const msgs = await getTgMessages(c, ctx);
-            return await ctx.reply(msgs.TgUnableGetUserInfoMsg);
-        }
-
-        const msgs = await getTgMessages(c, ctx);
-
-        // Check if user language config is enabled
-        if (!getBooleanValue(c.env.TG_ALLOW_USER_LANG)) {
-            return await ctx.reply(msgs.TgLangFeatureDisabledMsg);
-        }
-
-        // @ts-ignore
-        const lang = ctx?.message?.text.slice("/lang".length).trim().toLowerCase();
-        if (lang === 'zh' || lang === 'en') {
-            await c.env.KV.put(`${CONSTANTS.TG_KV_PREFIX}:lang:${userId}`, lang);
-            return await ctx.reply(`${msgs.TgLangSetSuccessMsg} ${lang === 'zh' ? '中文' : 'English'}`);
-        }
-
-        const currentLang = await c.env.KV.get(`${CONSTANTS.TG_KV_PREFIX}:lang:${userId}`);
-        return await ctx.reply(
-            `${msgs.TgCurrentLangMsg} ${currentLang || 'auto'}\n`
-            + `${msgs.TgSelectLangMsg}\n`
-            + `/lang zh - 中文\n`
-            + `/lang en - English`
-        );
-    });
-
-    const queryMail = async (ctx: TgContext, queryAddress: string, mailIndex: number, edit: boolean) => {
-        const msgs = await getTgMessages(c, ctx);
-        const userId = ctx?.message?.from?.id || ctx.callbackQuery?.message?.chat?.id;
-        if (!userId) {
-            return await ctx.reply(msgs.TgUnableGetUserInfoMsg);
-        }
-        const jwtList = await c.env.KV.get<string[]>(`${CONSTANTS.TG_KV_PREFIX}:${userId}`, 'json') || [];
-        const { addressList, addressIdMap } = await jwtListToAddressData(c, jwtList, msgs);
-        if (!queryAddress && addressList.length > 0) {
-            queryAddress = addressList[0];
-        }
-        if (!(queryAddress in addressIdMap)) {
-            return await ctx.reply(`${msgs.TgNotBoundAddressMsg} ${queryAddress}`);
-        }
-        const address_id = addressIdMap[queryAddress];
-        const db_address_id = await c.env.DB.prepare(
-            `SELECT id FROM address where id = ? `
-        ).bind(address_id).first("id");
-        if (!db_address_id) {
-            return await ctx.reply(msgs.TgInvalidAddressMsg);
-        }
-        const mailRow = await c.env.DB.prepare(
-            `SELECT * FROM raw_mails where address = ? `
-            + ` order by id desc limit 1 offset ?`
-        ).bind(
-            queryAddress, mailIndex
-        ).first<RawMailRow>();
-        const mailContext = mailRow ? await rawMailParseContext(c.env, mailRow) : undefined;
-        const mailId = mailRow?.id;
-        const created_at = mailRow?.created_at;
-        const { mail } = mailContext
-            ? await parseMail(msgs, mailContext, queryAddress, created_at, mailRow?.metadata)
-            : { mail: msgs.TgNoMoreMailsMsg };
-        const settings = await c.env.KV.get<TelegramSettings>(CONSTANTS.TG_KV_SETTINGS_KEY, "json");
-        const miniAppButtons = []
-        if (settings?.miniAppUrl && settings?.miniAppUrl?.length > 0 && mailId) {
-            const url = new URL(settings.miniAppUrl);
-            url.pathname = "/telegram_mail"
-            url.searchParams.set("mail_id", String(mailId));
-            miniAppButtons.push(Markup.button.webApp(msgs.TgViewMailBtnMsg, url.toString()));
-        }
-        if (edit) {
-            return await ctx.editMessageText(mail || msgs.TgNoMailMsg,
-                {
-                    ...Markup.inlineKeyboard([
-                        Markup.button.callback(msgs.TgPrevBtnMsg, `mail_${queryAddress}_${mailIndex - 1}`, mailIndex <= 0),
-                        ...miniAppButtons,
-                        Markup.button.callback(msgs.TgNextBtnMsg, `mail_${queryAddress}_${mailIndex + 1}`, !mailContext),
-                    ])
-                },
-            );
-        }
-        return await ctx.reply(mail || msgs.TgNoMailMsg,
-            {
-                ...Markup.inlineKeyboard([
-                    Markup.button.callback(msgs.TgPrevBtnMsg, `mail_${queryAddress}_${mailIndex - 1}`, mailIndex <= 0),
-                    ...miniAppButtons,
-                    Markup.button.callback(msgs.TgNextBtnMsg, `mail_${queryAddress}_${mailIndex + 1}`, !mailContext),
-                ])
-            },
-        );
+    bot.command('cancel', ctx => manager.cancel(ctx));
+    for (const name of Object.keys(commands)) {
+        bot.command(name, ctx => manager.start(ctx, name, ctx.payload));
     }
 
-    bot.command("mails", async ctx => {
-        const msgs = await getTgMessages(c, ctx);
-        try {
-            const queryAddress = ctx?.message?.text.slice("/mails".length).trim();
-            return await queryMail(ctx, queryAddress, 0, false);
-        } catch (e) {
-            return await ctx.reply(`${msgs.TgGetMailFailedMsg} ${(e as Error).message}`);
+    bot.on(message('text'), async ctx => {
+        const { text, entities, reply_to_message: reply } = ctx.message;
+        if (entities?.some(entity => entity.type === 'bot_command' && entity.offset === 0)) {
+            // A command for another bot is neither a switch nor input.
+            const target = text.split(/\s/, 1)[0].split('@')[1];
+            if (!target || target.toLowerCase() === ctx.botInfo.username.toLowerCase()) await manager.cancel(ctx, true);
+            return;
         }
-    });
-
-    bot.on(callbackQuery("data"), async ctx => {
-        const msgs = await getTgMessages(c, ctx);
-        // Use ctx.callbackQuery.data
-        try {
-            const data = ctx.callbackQuery.data;
-            if (data && data.startsWith("mail_") && data.split("_").length === 3) {
-                const [_, queryAddress, mailIndex] = data.split("_");
-                await queryMail(ctx, queryAddress, parseInt(mailIndex), true);
-            }
-        }
-        catch (e) {
-            console.log(`${msgs.TgGetMailFailedMsg} ${(e as Error).message}`, e);
-            return await ctx.answerCbQuery(`${msgs.TgGetMailFailedMsg} ${(e as Error).message}`);
-        }
-        await ctx.answerCbQuery();
+        const isPromptReply = reply?.from?.id === ctx.botInfo.id && 'text' in reply
+            && !!reply.text && manager.isPrompt(reply.text);
+        await manager.input(ctx, text, reply?.message_id, isPromptReply);
     });
 
     return bot;
 }
-
 
 export async function initTelegramBotCommands(c: Context<HonoCustomType>, bot: Telegraf) {
     await bot.telegram.setMyCommands(getTelegramCommands(c));

@@ -3,6 +3,7 @@ import { CONSTANTS } from "../constants";
 import utils from "../utils";
 import { ensureMailStorageSchema } from "../email/storage/schema";
 import { compareVersions } from "../utils/version";
+import { TELEGRAM_CONVERSATION_SCHEMA } from "../telegram_api/conversation-store";
 
 const DB_INIT_QUERIES = `
 CREATE TABLE IF NOT EXISTS raw_mails (
@@ -149,6 +150,7 @@ CREATE TABLE IF NOT EXISTS redeem_codes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_redeem_codes_type ON redeem_codes(redeem_type);
+${TELEGRAM_CONVERSATION_SCHEMA}
 `
 
 export default {

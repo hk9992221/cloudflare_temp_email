@@ -228,3 +228,27 @@ CREATE TRIGGER IF NOT EXISTS raw_mails_storage_delete
             WHERE mail_id = OLD.id;
         DELETE FROM mail_storage_migration_failures WHERE mail_id = OLD.id;
     END;
+
+CREATE TABLE IF NOT EXISTS telegram_conversations (
+    bot_id TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    command TEXT NOT NULL,
+    status TEXT NOT NULL,
+    data TEXT NOT NULL,
+    prompt_id INTEGER,
+    expires_at INTEGER NOT NULL,
+    last_update_id INTEGER NOT NULL,
+    PRIMARY KEY (bot_id, chat_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_conversations_expires ON telegram_conversations(expires_at);
+
+CREATE TABLE IF NOT EXISTS telegram_conversation_updates (
+    bot_id TEXT NOT NULL,
+    update_id INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    PRIMARY KEY (bot_id, update_id)
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_conversation_updates_expires ON telegram_conversation_updates(expires_at);

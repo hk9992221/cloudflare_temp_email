@@ -188,6 +188,31 @@ export type LocaleMessages = {
     TgNoPermissionViewMailMsg: string
     TgBotTokenRequiredMsg: string
     TgLangFeatureDisabledMsg: string
+    TgConversationNoActiveMsg: string
+    TgConversationCancelledMsg: string
+    TgConversationExpiredMsg: string
+    TgConversationStaleMsg: string
+    TgConversationBusyMsg: string
+    TgConversationErrorMsg: string
+    TgConversationTextHelpMsg: string
+    TgConversationInputPlaceholderMsg: string
+    TgConversationConfirmDeleteMsg: string
+    TgConversationCancelMsg: string
+    TgConversationManualMsg: string
+    TgConversationPageMsg: string
+    TgConversationPrevPageMsg: string
+    TgConversationNextPageMsg: string
+    TgConversationChooseDomainMsg: string
+    TgConversationDefaultDomainMsg: string
+    TgConversationNewModeMsg: string
+    TgConversationRandomMsg: string
+    TgConversationCustomNameMsg: string
+    TgConversationRandomDomainMsg: string
+    TgConversationNameInputMsg: string
+    TgConversationChooseDeleteMsg: string
+    TgConversationChooseAddressMsg: string
+    TgConversationDeletePromptMsg: string
+    TgConversationFirstMailboxMsg: string
     TgAiExtractResultMsg: string
     TgAiExtractAuthCodeMsg: string
     TgAiExtractAuthLinkMsg: string
