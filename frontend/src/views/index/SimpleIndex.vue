@@ -17,6 +17,8 @@ import Login from '../common/Login.vue'
 import AccountSettings from './AccountSettings.vue'
 import { processItem, releaseMailAttachments } from '../../utils/email-parser'
 import MailContentRenderer from '../../components/MailContentRenderer.vue'
+import AliasFilter from '../../components/AliasFilter.vue'
+import PlusAlias from '../../components/PlusAlias.vue'
 import AddressSelect from '../../components/AddressSelect.vue'
 import AddressCredentialModal from '../../components/AddressCredentialModal.vue'
 
@@ -28,6 +30,7 @@ const currentPage = ref(1)
 const totalCount = ref(0)
 const currentMail = ref(null)
 let mailRequest = 0
+let serverFilters = {}
 watch(currentMail, (_current, previous) => releaseMailAttachments(previous))
 const showAccountSettingsCard = ref(false)
 const currentAutoRefreshInterval = ref(60)
@@ -47,14 +50,24 @@ const copyAddress = async () => {
 
 const fetchRawMail = id => api.fetch(`/api/mail/${id}?download=eml`, { responseType: 'blob', showLoading: false });
 
+const fetchMailPage = (limit, offset, summary, filters) =>
+    api.fetch(`/api/mails?${new URLSearchParams({ limit, offset, summary, ...filters })}`, { showLoading: false })
+
+const changeServerFilters = async filters => {
+    serverFilters = filters
+    if (currentPage.value !== 1) currentPage.value = 1
+    else await fetchMails()
+}
+
 // 获取邮件数据
 const fetchMails = async () => {
     if (!settings.value.address) return
     const request = ++mailRequest
     try {
-        const { results, count } = await api.fetch(`/api/mails?summary=true&limit=1&offset=${currentPage.value - 1}`)
-        totalCount.value = count > 0 ? count : totalCount.value;
+        const firstPage = currentPage.value === 1
+        const { results, count } = await fetchMailPage(1, currentPage.value - 1, true, serverFilters)
         if (request !== mailRequest) return
+        if (firstPage) totalCount.value = count
         const row = results?.[0];
         const mail = row ? await processItem(row, await (await fetchRawMail(row.id)).arrayBuffer()) : null;
         if (request !== mailRequest) {
@@ -206,6 +219,7 @@ onBeforeUnmount(() => {
                         {{ t('mailboxSettings') }}
                     </n-button>
                 </n-flex>
+                <PlusAlias v-if="openSettings.enablePlusAddressing" :address="settings.address" />
                 <div v-if="isFirstPage" style="text-align: center; margin-top: 12px;">
                     <n-text depth="3" size="12">
                         {{ t('refreshAfter', { msg: Math.max(0, currentAutoRefreshInterval) }) }}
@@ -221,6 +235,8 @@ onBeforeUnmount(() => {
 
             <n-card v-else :bordered="false" embedded style="text-align: left;">
 
+                <AliasFilter :key="settings.address" :fetch-mails="fetchMailPage"
+                    :unread-enabled="openSettings.enableMailReadStatus" @change="changeServerFilters" />
                 <div v-if="totalCount > 1">
                     <n-flex justify="space-between">
                         <n-button @click="prevPage" :disabled="!canGoPrev" text size="small">

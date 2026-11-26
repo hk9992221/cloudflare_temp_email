@@ -180,7 +180,7 @@ const showFilterCheckModal = ref(false)
 const filterCheckMode = ref('random')
 const filterCheckMailId = ref<number | null>(null)
 const checkingFilter = ref(false)
-const filterFields = ['from', 'to', 'subject', 'text', 'html']
+const filterFields = ['from', 'to', 'subject', 'text', 'html', 'mailbox_address', 'original_recipient', 'alias_tag']
 const fields = computed(() => filterFields.map(value => ({ value, label: t(`filter_${value}`) })))
 const isFieldAllowed = (field: string) => filterFields.includes(field)
     || /^header\.[a-zA-Z0-9!#$%&'*+.^_`|~-]+$/.test(field)

@@ -38,6 +38,7 @@ type Bindings = {
     MAX_ADDRESS_LEN: string | number | undefined
     DEFAULT_DOMAINS: string | string[] | undefined
     DOMAINS: string | string[] | undefined
+    ENABLE_PLUS_ADDRESSING?: string | boolean
     ENABLE_CREATE_ADDRESS_SUBDOMAIN_MATCH: string | boolean | undefined
     RANDOM_SUBDOMAIN_DOMAINS: string | string[] | undefined
     RANDOM_SUBDOMAIN_LENGTH: string | number | undefined
@@ -169,6 +170,10 @@ type AnotherWorker = {
 }
 
 type RPCEmailMessage = {
+    original_recipient?: string;
+    mailbox_address?: string;
+    alias_tag?: string | null;
+    is_plus_alias?: boolean;
     from: string | undefined | null,
     to: string | undefined | null,
     rawEmail: string | undefined | null,
@@ -183,6 +188,7 @@ type ParsedEmailAttachment = {
 }
 
 type ParsedEmailContext = {
+    recipient?: { original_recipient: string; mailbox_address: string; alias_tag: string | null; is_plus_alias: boolean },
     rawEmail: string,
     rawBytes?: ArrayBuffer,
     parsedEmail?: {

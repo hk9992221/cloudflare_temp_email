@@ -174,6 +174,8 @@ const messages: LocaleMessages = {
     TgPleaseInputCredentialMsg: "Please enter credential",
     TgPleaseInputAddressMsg: "Please enter address",
     TgAddressMsg: "Address:",
+    TgOriginalRecipientMsg: "Envelope recipient:",
+    TgAliasTagMsg: "Alias:",
     TgPasswordMsg: "Password:",
     TgCredentialMsg: "Credential:",
     TgNoSenderMsg: "No sender",

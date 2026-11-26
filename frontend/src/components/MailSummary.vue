@@ -44,6 +44,9 @@ const receivedAt = computed(() => new Date(`${props.mail.created_at} UTC`));
       </n-ellipsis>
     </div>
     <div class="mail-summary-subject" :title="`ID: ${mail.id}\n${mail.subject || ''}`">
+      <n-tag v-if="mail.alias_tag" size="small" type="info" :title="mail.original_recipient" style="max-width: 100%;">
+        <n-ellipsis>+{{ mail.alias_tag }}</n-ellipsis>
+      </n-tag>
       <n-ellipsis><n-text strong depth="1">{{ mail.subject || '—' }}</n-text></n-ellipsis>
     </div>
     <div v-if="mail.text && previewLineClamp > 0" class="mail-summary-preview">

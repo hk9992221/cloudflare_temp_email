@@ -1,6 +1,5 @@
 import { Context } from "hono";
 
-import { getJsonSetting, normalizeAddressDomain } from "../utils";
 import { sendMailToTelegram } from "../telegram_api";
 import { auto_reply } from "./auto_reply";
 import { isBlocked } from "./black_list";
@@ -10,24 +9,39 @@ import { check_if_junk_mail } from "./check_junk";
 import { remove_attachment_if_need } from "./check_attachment";
 import { extractEmailInfo } from "./ai_extract";
 import { forwardEmail } from "./forward";
-import { EmailRuleSettings } from "../models";
 import { decodeMailBytes } from "../gzip";
-import { CONSTANTS } from "../constants";
 import { deleteRawMail, storeRawMail } from "./storage";
 import { configuredBackend, MailStorageError, MAX_RAW_MAIL_BYTES, readBounded } from "./storage/r2";
+import { getEmailRules, plusAddressingStatus, recipientMetadata, resolveIncomingRecipient } from "../utils/recipient_resolver";
 
 
 async function receiveEmail(
     message: ForwardableEmailMessage, env: Bindings, ctx: ExecutionContext,
-    allowForward: boolean = true, onStored?: () => void
+    allowForward: boolean = true, onStored?: () => void, sourceMailbox?: string, forwardedMailboxes?: Set<string>
 ): Promise<void> {
-    const toAddress = normalizeAddressDomain(message.to);
     if (await isBlocked(message, env)) {
         message.setReject("Reject from address");
-        console.log(`Reject message from ${message.from} to ${toAddress}`);
         return;
     }
-    const parsedEmailContext: ParsedEmailContext = { rawEmail: '' };
+    let rules;
+    let recipient;
+    try {
+        rules = await getEmailRules({ env } as Context<HonoCustomType>);
+        recipient = await resolveIncomingRecipient(env, message.to, plusAddressingStatus(env, rules).enabled,
+            rules?.blockReceiveUnknowAddressEmail);
+    } catch {
+        message.setReject("Could not resolve recipient");
+        return;
+    }
+    if (recipient.known === false && rules?.blockReceiveUnknowAddressEmail) {
+        message.setReject("Unknown address");
+        return;
+    }
+    const toAddress = recipient.address;
+    if (sourceMailbox === toAddress || forwardedMailboxes?.has(toAddress)) return;
+    const parsedEmailContext: ParsedEmailContext = {
+        rawEmail: '', recipient: recipientMetadata(toAddress, recipient.original, recipient.tag),
+    };
     try {
         const useR2 = configuredBackend(env) === 'r2';
         if (useR2 && message.rawSize > MAX_RAW_MAIL_BYTES) throw new MailStorageError('MAIL_STORAGE_SIZE_LIMIT');
@@ -53,25 +67,6 @@ async function receiveEmail(
         console.error("check junk mail error", error);
     }
 
-    // check if unknown address mail
-    try {
-        const emailRuleSettings = await getJsonSetting<EmailRuleSettings>(
-            { env: env } as Context<HonoCustomType>, CONSTANTS.EMAIL_RULE_SETTINGS_KEY
-        );
-        if (emailRuleSettings?.blockReceiveUnknowAddressEmail) {
-            const db_address_id = await env.DB.prepare(
-                `SELECT id FROM address where name = ? `
-            ).bind(toAddress).first("id");
-            if (!db_address_id) {
-                message.setReject("Unknown address");
-                console.log(`Unknown address mail from ${message.from} to ${toAddress}`);
-                return;
-            }
-        }
-    } catch (error) {
-        console.error("check unknown address mail error", error);
-    }
-
     // remove attachment if configured or size > 2MB
     try {
         await remove_attachment_if_need(env, parsedEmailContext, message.from, toAddress, message.rawSize);
@@ -90,12 +85,15 @@ async function receiveEmail(
         rejectStorageFailure(message, error);
         return;
     }
+    forwardedMailboxes?.add(toAddress);
     onStored?.();
 
     // forward email
+    const deliveredTargets = recipient.tag !== null ? new Set<string>() : undefined;
     const { deleteOriginal: deleteAfterForward } = allowForward
         ? await forwardEmail(message, env, rawBytes ?? rawEmail,
-            (targetMessage, onTargetStored) => receiveEmail(targetMessage, env, ctx, false, onTargetStored))
+            (targetMessage, onTargetStored) => receiveEmail(targetMessage, env, ctx, false, onTargetStored,
+                toAddress, deliveredTargets), recipient.tag === null ? undefined : toAddress, rules)
         : { deleteOriginal: false };
 
     // AI email content extraction
@@ -126,7 +124,8 @@ async function receiveEmail(
         const parsedText = parsedEmail?.text ?? ""
         const rpcEmail: RPCEmailMessage = {
             from: message.from,
-            to: toAddress,
+            to: recipient.normalized,
+            ...parsedEmailContext.recipient,
             rawEmail: rawEmail,
             headers: message.headers
         }

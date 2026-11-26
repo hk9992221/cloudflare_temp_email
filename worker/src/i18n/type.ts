@@ -172,6 +172,8 @@ export type LocaleMessages = {
     TgPleaseInputCredentialMsg: string
     TgPleaseInputAddressMsg: string
     TgAddressMsg: string
+    TgOriginalRecipientMsg: string
+    TgAliasTagMsg: string
     TgPasswordMsg: string
     TgCredentialMsg: string
     TgNoSenderMsg: string

@@ -185,9 +185,17 @@ const handleSaveToS3 = async (filename, blob) => {
         <n-text depth="3" class="mail-address-label">{{ t('from') }}</n-text>
         <n-text depth="2">{{ mail.source }}</n-text>
       </div>
-      <div v-if="showEMailTo" class="mail-address">
-        <n-text depth="3" class="mail-address-label">{{ t('to') }}</n-text>
+      <div v-if="showEMailTo || mail.alias_tag" class="mail-address">
+        <n-text depth="3" class="mail-address-label">{{ t(mail.alias_tag ? 'mailbox' : 'to') }}</n-text>
         <n-text depth="2">{{ mail.address }}</n-text>
+      </div>
+      <div v-if="mail.alias_tag" class="mail-address">
+        <n-text depth="3" class="mail-address-label">{{ t('originalRecipient') }}</n-text>
+        <n-text depth="2">{{ mail.original_recipient }}</n-text>
+      </div>
+      <div v-if="mail.alias_tag" class="mail-address">
+        <n-text depth="3" class="mail-address-label">{{ t('aliasTag') }}</n-text>
+        <n-text depth="2">+{{ mail.alias_tag }}</n-text>
       </div>
       <div class="mail-details-footer">
         <n-text depth="3">{{ utcToLocalDate(mail.created_at, useUTCDate) }}</n-text>
@@ -295,7 +303,9 @@ const handleSaveToS3 = async (filename, blob) => {
       <n-descriptions-item label="From">{{ mail.source }}</n-descriptions-item>
       <n-descriptions-item v-if="mail.originalSource && mail.originalSource !== mail.source"
         label="SMTP envelope sender">{{ mail.originalSource }}</n-descriptions-item>
-      <n-descriptions-item v-if="showEMailTo" label="To">{{ mail.address }}</n-descriptions-item>
+      <n-descriptions-item v-if="showEMailTo || mail.alias_tag" :label="t(mail.alias_tag ? 'mailbox' : 'to')">{{ mail.address }}</n-descriptions-item>
+      <n-descriptions-item v-if="mail.alias_tag" :label="t('originalRecipient')">{{ mail.original_recipient }}</n-descriptions-item>
+      <n-descriptions-item v-if="mail.alias_tag" :label="t('aliasTag')">+{{ mail.alias_tag }}</n-descriptions-item>
       <n-descriptions-item label="Received at">{{ utcToLocalDate(mail.created_at, useUTCDate) }}</n-descriptions-item>
       <n-descriptions-item v-if="enableMailReadStatus && (mail.is_unread === 0 || mail.is_unread === 1)"
         label="Status">{{ mail.is_unread === 1 ? 'Unread' : 'Read' }}</n-descriptions-item>

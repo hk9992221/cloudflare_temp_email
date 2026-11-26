@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import worker from '../../worker/src/worker';
+import { createAddressToken } from '../../worker/src/address_auth';
 import { CONSTANTS } from '../../worker/src/constants';
 import mailApi, { recordTelegramInteraction } from './mail-api';
 import { inspectMailStorageTest, mailStorageTestBindings } from './mail-storage';
@@ -9,6 +10,11 @@ testApi.post('/seed_mail', c => mailApi.seedMail(c.req.raw, c.env));
 testApi.post('/receive_mail', c => mailApi.receiveMail(c.req.raw,
   mailStorageTestBindings(c.req.raw, c.env), c.executionCtx as ExecutionContext));
 testApi.on(['GET', 'POST'], '/mail_storage', c => inspectMailStorageTest(c.req.raw, c.env));
+testApi.post('/register_literal_address', async c => {
+  const { name } = await c.req.json<{ name: string }>();
+  const { meta } = await c.env.DB.prepare('INSERT INTO address (name) VALUES (?)').bind(name).run();
+  return c.json({ address: name, jwt: await createAddressToken(c, name, meta.last_row_id) });
+});
 testApi.post('/expire_redeem_code', async c => {
   const { code } = await c.req.json<{ code: string }>();
   const { meta } = await c.env.DB.prepare("UPDATE redeem_codes SET expires_at = '2020-01-01T00:00:00.000Z' WHERE code = ?")

@@ -24,6 +24,8 @@ keep_vars = true
 # SEND_MAIL_DOMAINS = ["example.com", "mail.example.com"]
 
 [vars]
+# Plus addressing is off by default. Explicit false disables the admin override.
+# ENABLE_PLUS_ADDRESSING = true
 # DEFAULT_LANG = "zh"
 # TITLE = "Custom Title" # custom title
 # ANNOUNCEMENT = "Custom Announcement"

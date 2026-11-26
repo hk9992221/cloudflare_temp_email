@@ -120,6 +120,7 @@ const getOpenSettings = async (message, notification) => {
             disableCustomAddressName: res["disableCustomAddressName"] || false,
             enableUserDeleteEmail: res["enableUserDeleteEmail"] || false,
             enableMailReadStatus: res["enableMailReadStatus"] === true,
+            enablePlusAddressing: res["enablePlusAddressing"] === true,
             enableAddressExpiry: res["enableAddressExpiry"] === true,
             enableAutoReply: res["enableAutoReply"] || false,
             enableIndexAbout: res["enableIndexAbout"] || false,

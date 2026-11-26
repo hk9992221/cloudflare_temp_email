@@ -35,13 +35,13 @@ const { t } = useScopedI18n('views.Index')
 const fetchRawMail = id => api.fetch(`/api/mail/${id}?download=eml`,
     { showLoading: false, responseType: 'blob' });
 
-const fetchMailData = async (limit, offset, summary) => {
+const fetchMailData = async (limit, offset, summary, filters = {}) => {
   if (mailIdQuery.value > 0) {
     const singleMail = await api.fetch(`/api/mail/${mailIdQuery.value}`);
     if (singleMail) return { results: [singleMail], count: 1 };
     return { results: [], count: 0 };
   }
-  return await api.fetch(`/api/mails?limit=${limit}&offset=${offset}&summary=${summary}`);
+  return await api.fetch(`/api/mails?${new URLSearchParams({ limit, offset, summary, ...filters })}`);
 };
 
 const deleteMail = async (curMailId) => {
@@ -138,7 +138,7 @@ onMounted(() => {
           </div>
           <MailBox :key="mailBoxKey" :showEMailTo="false" :showReply="openSettings.enableSendMail" :showSaveS3="openSettings.isS3Enabled"
             :saveToS3="saveToS3" :enableUserDeleteEmail="openSettings.enableUserDeleteEmail"
-            :fetchMailData="fetchMailData"
+            :fetchMailData="fetchMailData" :show-alias-filter="!(mailIdQuery > 0)"
             :fetchRawMail="fetchRawMail" :deleteMail="deleteMail" :showFilterInput="true"
             :enableMailReadStatus="openSettings.enableMailReadStatus" :updateMailReadStatus="updateMailReadStatus" />
         </n-tab-pane>

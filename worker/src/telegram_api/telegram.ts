@@ -17,6 +17,7 @@ import { UserFromGetMe } from "telegraf/types";
 import i18n from "../i18n";
 import { LocaleMessages } from "../i18n/type";
 import type { ExtractResult, RawMailRow } from "../models";
+import { recipientMetadata } from "../utils/recipient_resolver";
 
 
 // Helper to get messages by userId
@@ -108,6 +109,9 @@ const readTelegramMail = async (
         'SELECT * FROM raw_mails WHERE address = ? ORDER BY id DESC LIMIT 1 OFFSET ?'
     ).bind(queryAddress, mailIndex).first<RawMailRow>();
     const mailContext = mailRow ? await rawMailParseContext(c.env, mailRow) : undefined;
+    if (mailContext && mailRow?.alias_tag) {
+        mailContext.recipient = recipientMetadata(queryAddress, mailRow.original_recipient ?? queryAddress, mailRow.alias_tag);
+    }
     const { mail } = mailContext
         ? await parseMail(msgs, mailContext, queryAddress, mailRow?.created_at, mailRow?.metadata)
         : { mail: msgs.TgNoMoreMailsMsg };
@@ -235,6 +239,9 @@ const parseMail = async (
             mail: formatAiExtractForTelegram(msgs, aiExtract)
                 + `From: ${parsedEmail?.sender || msgs.TgNoSenderMsg}\n`
                 + `To: ${address}\n`
+                + (parsedEmailContext.recipient?.is_plus_alias
+                    ? `${msgs.TgOriginalRecipientMsg} ${parsedEmailContext.recipient.original_recipient}\n`
+                      + `${msgs.TgAliasTagMsg} +${parsedEmailContext.recipient.alias_tag}\n` : '')
                 + (created_at ? `Date: ${created_at}\n` : "")
                 + `Subject: ${parsedEmail?.subject}\n`
                 + `Content:\n${parsedText || msgs.TgParseFailedViewInAppMsg}`

@@ -2,6 +2,7 @@ import { Context } from "hono";
 import { CONSTANTS } from "../constants";
 import { WebhookSettings, RawMailRow } from "../models";
 import { sendWebhook, compileWebhookFilter } from "../common";
+import { normalizeAddressDomain } from "../utils";
 import { commonParseMail } from "../utils/mail_parser";
 import { rawMailParseContext } from "../email/storage/read";
 import i18n from "../i18n";
@@ -53,9 +54,11 @@ async function checkWebhookFilter(c: Context<HonoCustomType>): Promise<Response>
         `SELECT * FROM raw_mails ORDER BY RANDOM() LIMIT 1`
     ).first<RawMailRow>();
     if (!mailRow) return c.text(msgs.MailNotFoundMsg, 404);
-    const parsedEmail = await commonParseMail(await rawMailParseContext(c.env, mailRow));
+    const context = await rawMailParseContext(c.env, mailRow);
+    const parsedEmail = await commonParseMail(context);
+    const to = normalizeAddressDomain(context.recipient?.original_recipient ?? '');
     try {
-        return c.json({ success: true, matched: match(parsedEmail, mailRow.address ?? '') });
+        return c.json({ success: true, matched: match(parsedEmail, to, context.recipient) });
     } catch {
         return c.text(msgs.WebhookFilterEvaluationFailedMsg, 400);
     }
@@ -88,7 +91,9 @@ async function testWebhookSettings(c: Context<HonoCustomType>): Promise<Response
         id: String(mailId ?? 0),
         url: c.env.FRONTEND_URL ? `${c.env.FRONTEND_URL}?mail_id=${mailId}` : "",
         from: parsedEmail?.sender || "test@test.com",
-        to: "admin@test.com",
+        to: parsedEmailContext.recipient?.is_plus_alias
+            ? normalizeAddressDomain(parsedEmailContext.recipient.original_recipient) : "admin@test.com",
+        ...parsedEmailContext.recipient,
         subject: parsedEmail?.subject || "test subject",
         raw: parsedEmailContext.rawEmail || "test raw email",
         parsedText: parsedEmail?.text || "test parsed text",

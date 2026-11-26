@@ -17,10 +17,13 @@ CREATE TABLE IF NOT EXISTS raw_mails (
     subject TEXT,
     sender TEXT,
     preview TEXT,
-    attachment_count INTEGER
+    attachment_count INTEGER,
+    original_recipient TEXT,
+    alias_tag TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_raw_mails_address ON raw_mails(address);
+CREATE INDEX IF NOT EXISTS idx_raw_mails_address_alias_tag ON raw_mails(address, alias_tag, id);
 
 CREATE INDEX IF NOT EXISTS idx_raw_mails_created_at ON raw_mails(created_at);
 
