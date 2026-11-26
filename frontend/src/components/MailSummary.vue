@@ -18,7 +18,15 @@ const props = defineProps({
   showEMailTo: { type: Boolean, default: true },
   enableMailReadStatus: { type: Boolean, default: false },
   previewLineClamp: { type: Number, default: 0 },
+  aliasClickable: Boolean,
 });
+
+const emit = defineEmits(['alias-click'])
+const clickAlias = event => {
+  if (!props.aliasClickable) return
+  event.stopPropagation()
+  emit('alias-click', props.mail.alias_tag)
+}
 
 const receivedAt = computed(() => new Date(`${props.mail.created_at} UTC`));
 </script>
@@ -44,7 +52,9 @@ const receivedAt = computed(() => new Date(`${props.mail.created_at} UTC`));
       </n-ellipsis>
     </div>
     <div class="mail-summary-subject" :title="`ID: ${mail.id}\n${mail.subject || ''}`">
-      <n-tag v-if="mail.alias_tag" size="small" type="info" :title="mail.original_recipient" style="max-width: 100%;">
+      <n-tag v-if="mail.alias_tag" size="small" type="info" :title="mail.original_recipient" style="max-width: 100%;" :class="{ 'alias-clickable': aliasClickable }"
+        :role="aliasClickable ? 'button' : undefined" :tabindex="aliasClickable ? 0 : undefined"
+        @click="clickAlias" @keydown.enter="clickAlias" @keydown.space="clickAlias">
         <n-ellipsis>+{{ mail.alias_tag }}</n-ellipsis>
       </n-tag>
       <n-ellipsis><n-text strong depth="1">{{ mail.subject || '—' }}</n-text></n-ellipsis>
@@ -123,6 +133,8 @@ const receivedAt = computed(() => new Date(`${props.mail.created_at} UTC`));
 .mail-summary :deep(.ai-extract-info) {
   margin: 2px 0 0;
 }
+
+.alias-clickable { cursor: pointer; }
 
 .mail-summary :deep(.n-tag) {
   max-width: 100%;
