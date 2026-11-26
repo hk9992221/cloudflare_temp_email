@@ -26,7 +26,7 @@ const fetchRawMail = id => api.fetch(`/user_api/mails/${id}?download=eml`,
 const fetchMailData = async (limit, offset, summary, filters = {}) => {
     const params = new URLSearchParams({ limit, offset, summary, ...filters });
     if (addressFilter.value) params.set('address', addressFilter.value);
-    return await api.fetch(`/user_api/mails?${params}`);
+    return await api.fetch(`/user_api/mails?${params}`, { showLoading: filters.aliasTags !== 'true' });
 }
 
 const fetchAddresData = async () => {
