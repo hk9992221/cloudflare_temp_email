@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import worker from '../../worker/src/worker';
 import { CONSTANTS } from '../../worker/src/constants';
-import mailApi from './mail-api';
+import mailApi, { recordTelegramInteraction } from './mail-api';
 import { inspectMailStorageTest, mailStorageTestBindings } from './mail-storage';
 
 const testApi = new Hono<HonoCustomType>();
@@ -26,6 +26,45 @@ testApi.post('/telegram_binding', async c => {
   const { userId, address, jwt } = await c.req.json<{ userId: number; address: string; jwt: string }>();
   await c.env.KV.put(`${CONSTANTS.TG_KV_PREFIX}:${userId}`, JSON.stringify([jwt]));
   await c.env.KV.put(`${CONSTANTS.TG_KV_PREFIX}:${address}`, String(userId));
+  return c.json({ success: true });
+});
+testApi.post('/telegram_update', async c => {
+  const request = new Request(new URL(c.req.raw.url.replace('/__test/telegram_update', '/telegram/webhook')),
+      c.req.raw);
+  const botId = Number(c.req.header('x-test-telegram-bot') || 81230001);
+  const defaults = c.req.header('x-test-telegram-domains');
+  const env = {
+    ...c.env,
+    DEFAULT_LANG: 'en',
+    TG_BOT_INFO: JSON.stringify({ id: botId, is_bot: true, first_name: 'Test Bot', username: 'test_bot' }),
+    TG_ALLOW_USER_LANG: true,
+    TG_MAX_ADDRESS: 30,
+    ...(defaults ? { DEFAULT_DOMAINS: JSON.parse(defaults) } : {}),
+    ...(c.req.header('x-test-telegram-delete') === 'disabled' ? { ENABLE_USER_DELETE_EMAIL: false } : {}),
+  };
+  return recordTelegramInteraction(() => worker.fetch(request, env, c.executionCtx),
+      c.req.header('x-test-telegram-edit') === 'fail');
+});
+testApi.post('/telegram_init', async c => {
+  const url = new URL('/admin/telegram/init', c.req.url);
+  const request = new Request(url, { method: 'POST', headers: { 'x-admin-auth': 'e2e-admin-pass' } });
+  return recordTelegramInteraction(() => worker.fetch(request,
+      { ...c.env, TG_ALLOW_USER_LANG: true }, c.executionCtx));
+});
+testApi.on(['GET', 'POST'], '/telegram_conversation', async c => {
+  const user = c.req.query('user') || '';
+  const chat = c.req.query('chat') || user;
+  const bot = c.req.query('bot') || '81230001';
+  if (c.req.method === 'POST') {
+    await c.env.DB.prepare('UPDATE telegram_conversations SET expires_at = 1 WHERE bot_id = ? AND chat_id = ? AND user_id = ?')
+        .bind(bot, chat, user).run();
+  }
+  return c.json(await c.env.DB.prepare('SELECT * FROM telegram_conversations WHERE bot_id = ? AND chat_id = ? AND user_id = ?')
+      .bind(bot, chat, user).first());
+});
+testApi.post('/telegram_command_binding', async c => {
+  const { user, credentials } = await c.req.json<{ user: number; credentials: string[] }>();
+  await c.env.KV.put(`${CONSTANTS.TG_KV_PREFIX}:${user}`, JSON.stringify(credentials));
   return c.json({ success: true });
 });
 

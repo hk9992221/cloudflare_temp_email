@@ -6,6 +6,7 @@ import { test } from 'node:test';
 
 import { CONSTANTS } from '../../../worker/src/constants.ts';
 import { compareVersions } from '../../../worker/src/utils/version.ts';
+import { TELEGRAM_CONVERSATION_SCHEMA } from '../../../worker/src/telegram_api/conversation-store.ts';
 
 const loadTsModule = async (relativePath, mocks = {}) => {
   const fileUrl = new URL(relativePath, import.meta.url);
@@ -226,6 +227,7 @@ test('DB initialization and v0.0.10 -> v0.0.11 migration add expires_at column a
     utils: utilsMock,
     compareVersions,
     ensureMailStorageSchema: async () => {},
+    TELEGRAM_CONVERSATION_SCHEMA,
   })).default;
 
   // 1. Fresh initialization via DB_INIT_QUERIES

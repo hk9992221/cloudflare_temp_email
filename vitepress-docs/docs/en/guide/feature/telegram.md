@@ -91,6 +91,25 @@ Set `ENABLE_TG_PUSH_ATTACHMENT = true` to enable sending email attachments via T
 - Multiple attachments are sent in batches via `sendMediaGroup`, up to 6 per batch
 - The first attachment includes the sender and subject as caption
 
+## Interactive bot commands
+
+Choose a command from Telegram's command menu to start. The bot offers buttons or asks you to reply. Use `/cancel` to cancel a pending operation. Each valid interaction renews the five-minute timeout. Bot commands run in private chats.
+
+| Command | Interaction |
+| --- | --- |
+| `/new` | Generate an address immediately, or enter a name and select an allowed domain. `/new name@domain`, `/new name`, and `/new @domain` still work. `/new name@` asks for the domain. |
+| `/bind` | Reply with a mailbox credential or use `/bind credential`. |
+| `/mails` | Open the first valid bound mailbox, or select or enter a different address. |
+| `/unbind` | Select or enter an address bound to your Telegram account. |
+| `/delete` | Select or enter a bound address and confirm. A complete command also requires confirmation. The `ENABLE_USER_DELETE_EMAIL` setting applies. |
+| `/lang` | When `TG_ALLOW_USER_LANG` is enabled, choose a language or use `/lang zh` or `/lang en`. |
+| `/start`, `/address`, `/cleaninvalidaddress` | Run directly. |
+
+### Upgrade an existing deployment
+
+1. Migrate D1 to schema `v0.0.13`. For a database on `v0.0.12`, apply `db/2026-11-26-telegram-conversations.sql` before deploying, or use the admin database migration after deploying the Worker. For older schemas, use the admin migration.
+2. After deployment, run initialization in the admin Telegram settings. This registers `/cancel` and configures a webhook secret derived from the current Bot Token. Existing webhook deliveries resume after initialization. Initialize again after rotating the Bot Token.
+
 ## Mini App
 
 Can be deployed via command line or UI interface

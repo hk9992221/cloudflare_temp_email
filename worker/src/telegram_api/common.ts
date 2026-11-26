@@ -84,10 +84,10 @@ export const jwtListToAddressData = async (
             const { address, address_id } = await verifyTelegramBindingToken(c, jwt);
             addressList.push(address as string);
             addressIdMap[address as string] = address_id as number;
-        } catch (e) {
+        } catch {
             addressList.push(msgs.TgInvalidCredentialMsg);
             invalidJwtList.push(jwt);
-            console.log(`Failed to get address list: ${(e as Error).message}`);
+            console.log('Failed to validate a stored Telegram address binding');
         }
     }
     return { addressList, addressIdMap, invalidJwtList };
@@ -119,8 +119,8 @@ const getTelegramBindings = async (c: Context<HonoCustomType>, userId: string) =
     return Promise.all(jwtList.map(async (jwt) => {
         try {
             return { jwt, payload: await Jwt.verify(jwt, c.env.JWT_SECRET, { alg: 'HS256', exp: false }) };
-        } catch (e) {
-            console.log(`解绑失败: ${(e as Error).message}`);
+        } catch {
+            console.log('Failed to read a stored Telegram address binding');
             return { jwt, payload: null };
         }
     }));
@@ -148,8 +148,8 @@ export const unbindTelegramAddress = async (
             && payload.type !== 'address_password_login') continue;
         try {
             if (!await validateAddressPayload(c, payload)) continue;
-        } catch (e) {
-            console.log(`Failed to validate Telegram binding: ${(e as Error).message}`);
+        } catch {
+            console.log('Failed to validate a stored Telegram address binding');
             continue;
         }
         return await removeTelegramBinding(c, userId, address, bindings);
@@ -172,11 +172,12 @@ export const unbindTelegramByAddress = async (
 
 export const deleteTelegramAddress = async (
     c: Context<HonoCustomType>, userId: string, address: string,
-    msgs: LocaleMessages
+    msgs: LocaleMessages,
+    expectedId?: number,
 ): Promise<boolean> => {
     const jwtList = await c.env.KV.get<string[]>(`${CONSTANTS.TG_KV_PREFIX}:${userId}`, 'json') || [];
     const { addressIdMap } = await jwtListToAddressData(c, jwtList, msgs);
-    if (!(address in addressIdMap)) {
+    if (!(address in addressIdMap) || (expectedId !== undefined && addressIdMap[address] !== expectedId)) {
         throw Error(msgs.TgAddressNotYoursMsg);
     }
     await deleteAddressWithData(c, null, addressIdMap[address])

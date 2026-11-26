@@ -2,14 +2,31 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { Telegram } from 'telegraf';
 
 const telegramRecording = new AsyncLocalStorage<{ method: string; payload: unknown }[] | undefined>();
+const telegramInteractiveMock = new AsyncLocalStorage<{ editFails: boolean }>();
+let nextTelegramMessageId = 100;
 const callApi = Telegram.prototype.callApi;
 // Keep the shared transport stable and record only the current request.
 Telegram.prototype.callApi = function (this: Telegram, ...args: Parameters<typeof callApi>) {
     const calls = telegramRecording.getStore();
     if (!calls) return callApi.apply(this, args);
     calls.push({ method: args[0], payload: args[1] });
+    const interactive = telegramInteractiveMock.getStore();
+    if (interactive) {
+        if (interactive.editFails && args[0] === 'editMessageText') {
+            return Promise.reject(new Error('Simulated edit failure'));
+        }
+        if (args[0] === 'sendMessage') return Promise.resolve({ message_id: ++nextTelegramMessageId });
+        return Promise.resolve(true);
+    }
     return Promise.resolve({ message_id: calls.length });
 } as typeof callApi;
+
+export async function recordTelegramInteraction(run: () => Promise<Response>, editFails = false) {
+    const calls: { method: string; payload: unknown }[] = [];
+    const response = await telegramRecording.run(calls,
+        () => telegramInteractiveMock.run({ editFails }, run));
+    return Response.json({ calls, status: response.status, response: await response.text() });
+}
 
 const nativeFetch = globalThis.fetch;
 const telegramUploadFailure = new AsyncLocalStorage<'http' | 'network' | 'api' | undefined>();

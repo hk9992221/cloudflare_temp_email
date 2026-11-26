@@ -6,9 +6,15 @@ import { CleanupSettings } from './models';
 import { collectMailObjects } from './email/storage/gc';
 import { MailStorageError } from './email/storage/r2';
 import { executeCustomSqlCleanup } from './admin_api/cleanup_api';
+import { cleanTelegramConversations } from './telegram_api/conversation-store';
 
 export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: any) {
     console.log("Scheduled event: ", event);
+    if (env.TELEGRAM_BOT_TOKEN) {
+        ctx.waitUntil(cleanTelegramConversations(env.DB).catch(() => {
+            console.warn('Telegram conversation cleanup failed');
+        }));
+    }
     if (env.MAIL_STORAGE) {
         ctx.waitUntil(collectMailObjects(env).catch(error => {
             console.error('mail storage scheduled GC:', error instanceof MailStorageError
