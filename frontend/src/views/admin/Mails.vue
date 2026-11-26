@@ -23,7 +23,7 @@ const fetchRawMail = id => api.fetch(`/admin/mails/${id}?download=eml`,
 const fetchMailData = async (limit, offset, summary, filters = {}) => {
     const params = new URLSearchParams({ limit, offset, summary, ...filters });
     if (adminMailTabAddress.value) params.set('address', adminMailTabAddress.value);
-    return await api.fetch(`/admin/mails?${params}`);
+    return await api.fetch(`/admin/mails?${params}`, { showLoading: filters.aliasTags !== 'true' });
 }
 
 const deleteMail = async (curMailId) => {

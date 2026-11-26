@@ -13,13 +13,12 @@ import AddressManagement from '../user/AddressManagement.vue'
 import { getRouterPathWithLang } from '../../utils'
 import AddressSelect from '../../components/AddressSelect.vue'
 import AddressCredentialModal from '../../components/AddressCredentialModal.vue'
-import PlusAlias from '../../components/PlusAlias.vue'
 
 const router = useRouter()
 
 const {
     jwt, settings, showAddressCredential,
-    isTelegram, addressPassword, showUserSystem, showUserMailboxes, openSettings
+    isTelegram, addressPassword, showUserSystem, showUserMailboxes
 } = useGlobalState()
 
 const { locale, t } = useScopedI18n('views.index.AddressBar')
@@ -51,7 +50,7 @@ onMounted(async () => {
                         </n-button>
                     </template>
                 </AddressSelect>
-                <PlusAlias v-if="openSettings.enablePlusAddressing" :address="settings.address" />
+
             </n-alert>
         </div>
         <div v-else-if="isTelegram">

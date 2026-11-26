@@ -41,7 +41,7 @@ const fetchMailData = async (limit, offset, summary, filters = {}) => {
     if (singleMail) return { results: [singleMail], count: 1 };
     return { results: [], count: 0 };
   }
-  return await api.fetch(`/api/mails?${new URLSearchParams({ limit, offset, summary, ...filters })}`);
+  return await api.fetch(`/api/mails?${new URLSearchParams({ limit, offset, summary, ...filters })}`, { showLoading: filters.aliasTags !== 'true' });
 };
 
 const deleteMail = async (curMailId) => {
@@ -136,7 +136,7 @@ onMounted(() => {
               </n-button>
             </n-input-group>
           </div>
-          <MailBox :key="mailBoxKey" :showEMailTo="false" :showReply="openSettings.enableSendMail" :showSaveS3="openSettings.isS3Enabled"
+          <MailBox :key="`${settings.address}:${mailBoxKey}`" :showEMailTo="false" :showReply="openSettings.enableSendMail" :showSaveS3="openSettings.isS3Enabled"
             :saveToS3="saveToS3" :enableUserDeleteEmail="openSettings.enableUserDeleteEmail"
             :fetchMailData="fetchMailData" :show-alias-filter="!(mailIdQuery > 0)"
             :fetchRawMail="fetchRawMail" :deleteMail="deleteMail" :showFilterInput="true"

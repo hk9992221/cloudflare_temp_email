@@ -70,6 +70,13 @@ const props = defineProps({
 
 const localFilterKeyword = ref('')
 let serverFilters = {}
+const aliasRefreshVersion = ref(0)
+const desktopAliasFilter = ref(null)
+const mobileAliasFilter = ref(null)
+const selectAlias = tag => {
+  if (!props.showAliasFilter) return
+  ;(isMobile.value ? mobileAliasFilter.value : desktopAliasFilter.value)?.selectTag(tag)
+}
 const changeServerFilters = async filters => {
   serverFilters = filters
   await backFirstPageAndRefresh()
@@ -263,6 +270,7 @@ const refresh = async () => {
     }
     if (requestedPage !== pagination) return;
     rawData.value = rows;
+    aliasRefreshVersion.value++
     loadedPage = pagination
     if (pagination.page === 1) {
       count.value = totalCount;
@@ -472,7 +480,7 @@ onBeforeUnmount(() => {
           <n-button @click="backFirstPageAndRefresh" type="primary" tertiary>
             {{ t('refresh') }}
           </n-button>
-          <AliasFilter v-if="showAliasFilter" :fetch-mails="fetchMailData"
+          <AliasFilter v-if="showAliasFilter" ref="desktopAliasFilter" :fetch-mails="fetchMailData" :refresh-version="aliasRefreshVersion"
             :unread-enabled="enableMailReadStatus" @change="changeServerFilters" />
           <n-input v-if="showFilterInput" v-model:value="localFilterKeyword"
             :placeholder="t('keywordQueryTip')" style="width: 200px; display: flex; align-items: center;"
@@ -495,7 +503,7 @@ onBeforeUnmount(() => {
                   <n-checkbox v-model:checked="row.checked" @click.stop />
                 </template>
                 <MailSummary :mail="row" :showEMailTo="showEMailTo" :enableMailReadStatus="enableMailReadStatus"
-                  :previewLineClamp="mailListPreviewLineClampValue" />
+                  :previewLineClamp="mailListPreviewLineClampValue" :alias-clickable="showAliasFilter" @alias-click="selectAlias" />
               </n-list-item>
             </n-list>
           </div>
@@ -556,7 +564,7 @@ onBeforeUnmount(() => {
               <n-checkbox v-model:checked="row.checked" @click.stop />
             </template>
             <MailSummary :mail="row" :showEMailTo="showEMailTo" :enableMailReadStatus="enableMailReadStatus"
-              :previewLineClamp="mailListPreviewLineClampValue" />
+              :previewLineClamp="mailListPreviewLineClampValue" :alias-clickable="showAliasFilter" @alias-click="selectAlias" />
           </n-list-item>
         </n-list>
       </div>
@@ -576,7 +584,7 @@ onBeforeUnmount(() => {
           {{ t('refresh') }}
         </n-button>
       </n-space>
-      <AliasFilter v-if="showAliasFilter" :fetch-mails="fetchMailData"
+      <AliasFilter v-if="showAliasFilter" ref="mobileAliasFilter" :fetch-mails="fetchMailData" :refresh-version="aliasRefreshVersion"
         :unread-enabled="enableMailReadStatus" @change="changeServerFilters" />
       <div v-if="showFilterInput" style="padding: 0 10px; margin-top: 8px; margin-bottom: 10px;">
         <n-input v-model:value="localFilterKeyword"
@@ -587,7 +595,7 @@ onBeforeUnmount(() => {
           <n-list-item v-for="row in data" v-bind:key="row.id" @click="() => clickRow(row)"
             :class="{ 'mail-list-unread': enableMailReadStatus && row.is_unread === 1 }">
             <MailSummary :mail="row" :showEMailTo="showEMailTo" :enableMailReadStatus="enableMailReadStatus"
-              :previewLineClamp="mailListPreviewLineClampValue" />
+              :previewLineClamp="mailListPreviewLineClampValue" :alias-clickable="showAliasFilter" @alias-click="selectAlias" />
           </n-list-item>
         </n-list>
       </div>

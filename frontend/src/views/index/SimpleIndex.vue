@@ -18,7 +18,6 @@ import AccountSettings from './AccountSettings.vue'
 import { processItem, releaseMailAttachments } from '../../utils/email-parser'
 import MailContentRenderer from '../../components/MailContentRenderer.vue'
 import AliasFilter from '../../components/AliasFilter.vue'
-import PlusAlias from '../../components/PlusAlias.vue'
 import AddressSelect from '../../components/AddressSelect.vue'
 import AddressCredentialModal from '../../components/AddressCredentialModal.vue'
 
@@ -31,6 +30,7 @@ const totalCount = ref(0)
 const currentMail = ref(null)
 let mailRequest = 0
 let serverFilters = {}
+const aliasRefreshVersion = ref(0)
 watch(currentMail, (_current, previous) => releaseMailAttachments(previous))
 const showAccountSettingsCard = ref(false)
 const currentAutoRefreshInterval = ref(60)
@@ -75,6 +75,7 @@ const fetchMails = async () => {
             return;
         }
         currentMail.value = mail;
+        aliasRefreshVersion.value++
         return true
     } catch (error) {
         console.error('Failed to fetch mails:', error)
@@ -142,6 +143,16 @@ const nextPage = async () => {
         currentPage.value++
     }
 }
+
+watch(() => settings.value.address, (address, previous) => {
+    if (address === previous) return
+    mailRequest++
+    serverFilters = {}
+    currentMail.value = null
+    totalCount.value = 0
+    if (currentPage.value !== 1) currentPage.value = 1
+    else if (address) void fetchMails()
+})
 
 // 监听页面变化
 watch(currentPage, () => {
@@ -219,7 +230,7 @@ onBeforeUnmount(() => {
                         {{ t('mailboxSettings') }}
                     </n-button>
                 </n-flex>
-                <PlusAlias v-if="openSettings.enablePlusAddressing" :address="settings.address" />
+
                 <div v-if="isFirstPage" style="text-align: center; margin-top: 12px;">
                     <n-text depth="3" size="12">
                         {{ t('refreshAfter', { msg: Math.max(0, currentAutoRefreshInterval) }) }}
@@ -235,7 +246,7 @@ onBeforeUnmount(() => {
 
             <n-card v-else :bordered="false" embedded style="text-align: left;">
 
-                <AliasFilter :key="settings.address" :fetch-mails="fetchMailPage"
+                <AliasFilter :key="settings.address" :fetch-mails="fetchMailPage" :refresh-version="aliasRefreshVersion"
                     :unread-enabled="openSettings.enableMailReadStatus" @change="changeServerFilters" />
                 <div v-if="totalCount > 1">
                     <n-flex justify="space-between">
