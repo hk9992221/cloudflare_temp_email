@@ -5,6 +5,7 @@ import { CONSTANTS } from './constants';
 import { isS3Enabled } from './mails_api/s3_attachment';
 import { isAnySendMailEnabled } from './common';
 import { getWebhookAttachment } from './open_api/webhook_attachment';
+import { getEmailRules, plusAddressingStatus } from './utils/recipient_resolver';
 
 const api = new Hono<HonoCustomType>
 
@@ -42,6 +43,7 @@ api.get('/open_api/settings', async (c) => {
         "disableCustomAddressName": utils.getBooleanValue(c.env.DISABLE_CUSTOM_ADDRESS_NAME),
         "enableUserDeleteEmail": utils.getBooleanValue(c.env.ENABLE_USER_DELETE_EMAIL),
         "enableMailReadStatus": utils.getBooleanValue(c.env.ENABLE_MAIL_READ_STATUS),
+        "enablePlusAddressing": plusAddressingStatus(c.env, await getEmailRules(c)).enabled,
         "enableAddressExpiry": utils.getBooleanValue(c.env.ENABLE_ADDRESS_EXPIRY),
         "enableAutoReply": utils.getBooleanValue(c.env.ENABLE_AUTO_REPLY),
         "enableIndexAbout": utils.getBooleanValue(c.env.ENABLE_INDEX_ABOUT),

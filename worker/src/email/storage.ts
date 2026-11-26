@@ -12,21 +12,30 @@ import {
 
 type SaveResult = Pick<D1Result, 'success'> & { meta: Pick<D1Result['meta'], 'last_row_id'> };
 
-let rawMailTableColumns: Set<string> | undefined;
+const columnCache = new WeakMap<D1Database, { columns: Set<string>, expires: number }>();
 
 const getRawMailTableColumns = async (
     env: Bindings, requiredColumns: string[]
 ): Promise<Set<string>> => {
-    const cachedColumns = rawMailTableColumns;
-    if (cachedColumns && requiredColumns.every(column => cachedColumns.has(column))) {
-        return cachedColumns;
+    const cached = columnCache.get(env.DB);
+    if (cached && (cached.expires > Date.now() || requiredColumns.every(column => cached.columns.has(column)))) {
+        return cached.columns;
     }
     const tableInfo = await env.DB.prepare(`PRAGMA table_info(raw_mails)`).all<{ name: string }>();
     const columns = new Set(tableInfo.results.map(column => column.name));
-    if (requiredColumns.every(column => columns.has(column))) {
-        rawMailTableColumns = columns;
-    }
+    columnCache.set(env.DB, { columns, expires: Date.now() + 5000 });
     return columns;
+}
+
+async function recipientColumns(env: Bindings, mail: ParsedEmailContext) {
+    if (!mail.recipient) return { columns: '', values: '', params: [] };
+    const columns = await getRawMailTableColumns(env, ['original_recipient', 'alias_tag']);
+    if (!columns.has('original_recipient') || !columns.has('alias_tag')) {
+        if (mail.recipient.is_plus_alias) throw new MailStorageError('MAIL_STORAGE_SCHEMA_REQUIRED');
+        return { columns: '', values: '', params: [] };
+    }
+    return { columns: ', original_recipient, alias_tag', values: ', ?, ?',
+        params: [mail.recipient.original_recipient, mail.recipient.alias_tag] };
 }
 
 export const storeRawMail = async (
@@ -66,24 +75,13 @@ export const storeRawMail = async (
     }
 
     const storeUnreadStatus = readStatusEnabled && tableColumns.has('is_unread');
-    if (rawBlob) {
-        if (!storeUnreadStatus) {
-            return env.DB.prepare(
-                `INSERT INTO raw_mails (source, address, raw_blob, message_id) VALUES (?, ?, ?, ?)`
-            ).bind(source, address, rawBlob, messageId).run();
-        }
-        return env.DB.prepare(
-            `INSERT INTO raw_mails (source, address, raw_blob, message_id, is_unread) VALUES (?, ?, ?, ?, 1)`
-        ).bind(source, address, rawBlob, messageId).run();
-    }
-    if (!storeUnreadStatus) {
-        return env.DB.prepare(
-            `INSERT INTO raw_mails (source, address, raw, message_id) VALUES (?, ?, ?, ?)`
-        ).bind(source, address, raw, messageId).run();
-    }
+    const recipient = await recipientColumns(env, mail);
+    const readColumn = storeUnreadStatus ? ', is_unread' : '';
+    const readValue = storeUnreadStatus ? ', 1' : '';
     return env.DB.prepare(
-        `INSERT INTO raw_mails (source, address, raw, message_id, is_unread) VALUES (?, ?, ?, ?, 1)`
-    ).bind(source, address, raw, messageId).run();
+        `INSERT INTO raw_mails (source, address, ${rawBlob ? 'raw_blob' : 'raw'}, message_id${readColumn}${recipient.columns})
+        VALUES (?, ?, ?, ?${readValue}${recipient.values})`
+    ).bind(source, address, rawBlob ?? raw, messageId, ...recipient.params).run();
 }
 
 function needsBinaryStorage(text: string, bytes: ArrayBuffer): boolean {
@@ -103,6 +101,7 @@ async function storeR2Mail(
 ): Promise<SaveResult> {
     const bucket = requireBucket(env);
     await requireStorageSchema(env);
+    const recipient = await recipientColumns(env, mail);
     const raw = mail.rawBytes ?? new TextEncoder().encode(mail.rawEmail).buffer as ArrayBuffer;
     const { object, stored } = await prepareObject(env, raw);
     const summary = summarizeMail(await commonParseMail(mail));
@@ -112,11 +111,11 @@ async function storeR2Mail(
         await putObject(bucket, object, stored);
         const [insert] = await env.DB.batch([
             env.DB.prepare(`INSERT INTO raw_mails (source, address, message_id, is_unread, storage_backend,
-                r2_key, raw_encoding, raw_size, stored_size, content_sha256, subject, sender, preview, attachment_count)
-                SELECT ?, ?, ?, ?, 'r2', ?, ?, ?, ?, ?, ?, ?, ?, ?
+                r2_key, raw_encoding, raw_size, stored_size, content_sha256, subject, sender, preview, attachment_count${recipient.columns})
+                SELECT ?, ?, ?, ?, 'r2', ?, ?, ?, ?, ?, ?, ?, ?, ?${recipient.values}
                 WHERE EXISTS (${activeWriteIntent})`).bind(source, address, messageId,
                     getBooleanValue(env.ENABLE_MAIL_READ_STATUS) ? 1 : null,
-                    ...storedObjectFields(object, summary), key),
+                    ...storedObjectFields(object, summary), ...recipient.params, key),
             finishWriteIntent(env.DB, key),
         ]);
         if (!insert.success || insert.meta.changes !== 1) throw new MailStorageError('MAIL_STORAGE_COMMIT_FAILED');

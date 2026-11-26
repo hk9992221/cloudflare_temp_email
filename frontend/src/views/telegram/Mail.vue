@@ -1,5 +1,6 @@
 <script setup>
 import { useRoute } from 'vue-router'
+import { useScopedI18n } from '@/i18n/app'
 
 import { useGlobalState } from '../../store'
 import { api } from '../../api'
@@ -10,6 +11,7 @@ import { utcToLocalDate } from '../../utils';
 
 const { telegramApp, loading, useUTCDate } = useGlobalState()
 const route = useRoute()
+const { t } = useScopedI18n('components.MailContentRenderer')
 
 const curMail = ref({});
 const mailHtml = computed(() => blockRemoteContent(curMail.value.message, { allowRemoteImages: true }).html);
@@ -67,8 +69,14 @@ onBeforeUnmount(() => {
             <n-tag type="info">
                 FROM: {{ curMail.source }}
             </n-tag>
-            <n-tag v-if="showEMailTo" type="info">
-                TO: {{ curMail.address }}
+            <n-tag v-if="curMail.alias_tag" type="info">
+                {{ t('mailbox') }} · {{ curMail.address }}
+            </n-tag>
+            <n-tag v-if="curMail.alias_tag" type="info">
+                {{ t('originalRecipient') }} · {{ curMail.original_recipient }}
+            </n-tag>
+            <n-tag v-if="curMail.alias_tag" type="info">
+                +{{ curMail.alias_tag }}
             </n-tag>
             <iframe :srcdoc="mailHtml" sandbox="allow-same-origin allow-popups"
                 style="margin-top: 10px;width: 100%; height: 100%;">

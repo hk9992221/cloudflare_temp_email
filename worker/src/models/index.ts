@@ -25,6 +25,10 @@ export class AdminWebhookSettings {
 }
 
 export type WebhookMail = {
+    original_recipient?: string;
+    mailbox_address?: string;
+    alias_tag?: string | null;
+    is_plus_alias?: boolean;
     id: string;
     url?: string;
     attachments?: { filename: string, mimeType: string, url: string }[];
@@ -190,6 +194,7 @@ export type UserOauth2Settings = {
 }
 
 export type EmailRuleSettings = {
+    enablePlusAddressing?: boolean;
     blockReceiveUnknowAddressEmail: boolean;
     emailForwardingList: SubdomainForwardAddressList[]
 }
@@ -213,6 +218,8 @@ export type RawMailRow = {
     message_id?: string;
     source?: string;
     address?: string;
+    original_recipient?: string | null;
+    alias_tag?: string | null;
     raw?: string;
     raw_blob?: unknown;
     storage_backend?: 'd1' | 'r2';

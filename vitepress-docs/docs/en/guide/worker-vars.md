@@ -258,3 +258,21 @@ Admin or `SUBDOMAIN_FORWARD_ADDRESS_LIST` rules targeting addresses under domain
 > #]
 > #
 > ```
+
+## Plus email aliases
+
+Add a `+tag` to the local part of an existing mailbox. For example, mail sent to `invoice+GitHub+CI@mail.example.com` arrives in `invoice@mail.example.com` on the same domain. An independently registered address takes precedence over its base mailbox. Tags preserve case and additional plus signs.
+
+| Setting | Behavior |
+| --- | --- |
+| `ENABLE_PLUS_ADDRESSING` is unset | Off by default. Administrators can enable it in Account Settings. |
+| `ENABLE_PLUS_ADDRESSING = true` | On by default. Administrators can turn it off in Account Settings. |
+| `ENABLE_PLUS_ADDRESSING = false` | Forces the feature off and locks the setting in the admin UI. |
+
+Back up D1 and upgrade to schema `v0.0.14` for existing installations. With the new Worker deployed, use **Admin → Quick Setup → Database → Migrate Database** to run the repeatable schema upgrade. Deployments already at `v0.0.13` can apply `db/2026-11-26-plus-addressing.sql` once before releasing the Worker. Then deploy Webmail and the Telegram Mini App. Enable subaddressing in Cloudflare Email Routing on domains that should pass the complete SMTP envelope recipient to the Worker.
+
+Use the address bar to generate and copy an alias. The inbox supports tag, no-alias, and unread filters. Disabling alias routing affects future delivery. Previously received messages and tags remain accessible.
+
+Mail list and detail responses include `original_recipient` and `alias_tag`. Within the existing mailbox authorization scope, list requests support `aliasTag=<tag>`, `alias=none`, and `unread=true`. Use `aliasTags=true` to retrieve tag options with `tagSearch`, `limit`, and `offset`. URL-encode parameter values, including any plus signs as `%2B`.
+
+Webhook `to` remains the SMTP envelope recipient. Templates can use `mailbox_address` for the owning mailbox and also support `original_recipient`, `alias_tag`, and `is_plus_alias`. Forwarding still applies recipient filters to the envelope. An anchored address such as `^invoice@mail\.example\.com$` also applies to aliases of that mailbox. Other filter conditions continue to use the original envelope.

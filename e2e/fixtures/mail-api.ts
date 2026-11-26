@@ -91,11 +91,11 @@ const seedMail = async (request: Request, env: Bindings) => {
 // Exercises the real email() handler with a mock ForwardableEmailMessage.
 const receiveMail = async (request: Request, env: Bindings, ctx: ExecutionContext) => {
     const { from, to, raw, raw_base64, ai_extract_result, extract_mode, forward_address_list, subdomain_forward_address_list,
-        record_telegram, record_another_worker, telegram_attachments, telegram_upload_failure } = await request.json<{
+        record_telegram, record_another_worker, telegram_attachments, telegram_upload_failure, plus_addressing } = await request.json<{
         from: string; to: string; raw: string; raw_base64?: string; ai_extract_result?: unknown; extract_mode?: string;
         forward_address_list?: string[];
         subdomain_forward_address_list?: SubdomainForwardAddressList[];
-        record_telegram?: boolean; record_another_worker?: boolean;
+        record_telegram?: boolean; record_another_worker?: boolean; plus_addressing?: boolean;
         telegram_attachments?: boolean; telegram_upload_failure?: 'http' | 'network' | 'api';
     }>();
     if (!from || !to || !raw) {
@@ -144,7 +144,7 @@ const receiveMail = async (request: Request, env: Bindings, ctx: ExecutionContex
         prepare(sql: string) {
             const statement = env.DB.prepare(sql);
             const write = forwardFailure.startsWith('write-') && sql.startsWith('INSERT INTO raw_mails ');
-            const reject = forwardFailure === 'reject' && sql === 'SELECT id FROM address where name = ? ';
+            const reject = forwardFailure === 'reject' && sql === 'SELECT id FROM address WHERE name = ?';
             if (!write && !reject) return statement;
             return {
                 bind(...values: unknown[]) {
@@ -166,13 +166,14 @@ const receiveMail = async (request: Request, env: Bindings, ctx: ExecutionContex
     await telegramRecording.run(record_telegram ? telegramCalls : undefined,
         () => telegramUploadFailure.run(telegram_upload_failure, () => emailHandler(mockMessage, {
             ...emailEnv, DB,
+            ...(plus_addressing === undefined ? {} : { ENABLE_PLUS_ADDRESSING: plus_addressing }),
             ...(record_telegram ? {
                 TELEGRAM_BOT_TOKEN: 'e2e-record-only-token',
                 ...(telegram_attachments === undefined ? {} : { ENABLE_TG_PUSH_ATTACHMENT: telegram_attachments }),
             } : {}),
             ...(record_another_worker ? {
                 ENABLE_ANOTHER_WORKER: true,
-                ANOTHER_WORKER_LIST: [{ binding: 'TEST_WORKER', method: 'rpcEmail', keywords: ['Original body'] }],
+                ANOTHER_WORKER_LIST: [{ binding: 'TEST_WORKER', method: 'rpcEmail', keywords: ['Original body', 'Original café body'] }],
                 TEST_WORKER: { rpcEmail: async (body: string) => { workerCalls.push(JSON.parse(body)); } },
             } : {}),
             ...(forward_address_list === undefined ? {} : { FORWARD_ADDRESS_LIST: forward_address_list }),

@@ -174,6 +174,8 @@ const messages: LocaleMessages = {
     TgPleaseInputCredentialMsg: "请输入凭证",
     TgPleaseInputAddressMsg: "请输入地址",
     TgAddressMsg: "地址:",
+    TgOriginalRecipientMsg: "实际收件地址：",
+    TgAliasTagMsg: "别名：",
     TgPasswordMsg: "密码:",
     TgCredentialMsg: "凭证:",
     TgNoSenderMsg: "无发件人",

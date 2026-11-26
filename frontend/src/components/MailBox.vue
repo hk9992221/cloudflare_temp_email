@@ -9,6 +9,7 @@ import { processItem, releaseMailAttachments } from '../utils/email-parser'
 import { buildReplyModel, buildForwardModel } from '../utils/mail-actions'
 import MailContentRenderer from "./MailContentRenderer.vue";
 import MailSummary from "./MailSummary.vue";
+import AliasFilter from "./AliasFilter.vue";
 
 const message = useMessage()
 const themeVars = useThemeVars()
@@ -31,6 +32,7 @@ const props = defineProps({
     required: true
   },
   fetchRawMail: Function,
+  showAliasFilter: Boolean,
   deleteMail: {
     type: Function,
     default: () => { },
@@ -67,6 +69,11 @@ const props = defineProps({
 })
 
 const localFilterKeyword = ref('')
+let serverFilters = {}
+const changeServerFilters = async filters => {
+  serverFilters = filters
+  await backFirstPageAndRefresh()
+}
 
 const {
   isDark, mailboxSplitSize, mailListView, mailListPreviewLineClamp, indexTab, loading,
@@ -243,7 +250,7 @@ const refresh = async () => {
   requestedPage = pagination
   try {
     const { results, count: totalCount } = await props.fetchMailData(
-      pagination.pageSize, (pagination.page - 1) * pagination.pageSize, true
+      pagination.pageSize, (pagination.page - 1) * pagination.pageSize, true, serverFilters
     );
     if (requestedPage !== pagination) return;
     loading.value = true;
@@ -465,6 +472,8 @@ onBeforeUnmount(() => {
           <n-button @click="backFirstPageAndRefresh" type="primary" tertiary>
             {{ t('refresh') }}
           </n-button>
+          <AliasFilter v-if="showAliasFilter" :fetch-mails="fetchMailData"
+            :unread-enabled="enableMailReadStatus" @change="changeServerFilters" />
           <n-input v-if="showFilterInput" v-model:value="localFilterKeyword"
             :placeholder="t('keywordQueryTip')" style="width: 200px; display: flex; align-items: center;"
             clearable />
@@ -567,6 +576,8 @@ onBeforeUnmount(() => {
           {{ t('refresh') }}
         </n-button>
       </n-space>
+      <AliasFilter v-if="showAliasFilter" :fetch-mails="fetchMailData"
+        :unread-enabled="enableMailReadStatus" @change="changeServerFilters" />
       <div v-if="showFilterInput" style="padding: 0 10px; margin-top: 8px; margin-bottom: 10px;">
         <n-input v-model:value="localFilterKeyword"
           :placeholder="t('keywordQueryTip')" size="small" clearable />

@@ -101,7 +101,7 @@ export async function ensureMailStorageSchema(db: D1Database) {
     const existing = await mailColumns(db);
     // SQLite has no ALTER TABLE ADD COLUMN IF NOT EXISTS. Read the schema again
     // after a failed ALTER to handle another administrator applying it concurrently.
-    for (const [name, declaration] of Object.entries(columns)) {
+    for (const [name, declaration] of Object.entries({ ...columns, original_recipient: 'TEXT', alias_tag: 'TEXT' })) {
         if (existing.has(name)) continue;
         try {
             await db.prepare(`ALTER TABLE raw_mails ADD COLUMN ${name} ${declaration}`).run();
@@ -110,6 +110,8 @@ export async function ensureMailStorageSchema(db: D1Database) {
         }
     }
     // Prepare each statement so the DELETE trigger's semicolons are preserved.
-    await db.batch(Object.values(schema).map(sql => db.prepare(sql)));
+    await db.batch([...Object.values(schema),
+        'CREATE INDEX IF NOT EXISTS idx_raw_mails_address_alias_tag ON raw_mails(address, alias_tag, id)']
+        .map(sql => db.prepare(sql)));
     if (!(await inspectMailStorageSchema(db)).ready) throw new Error('MAIL_STORAGE_SCHEMA_REQUIRED');
 }

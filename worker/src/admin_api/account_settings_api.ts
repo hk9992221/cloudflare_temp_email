@@ -10,6 +10,7 @@ import {
     validateSendMailLimitConfig
 } from '../mails_api/send_mail_limit_utils'
 import { EmailRuleSettings } from '../models'
+import { plusAddressingStatus } from '../utils/recipient_resolver';
 
 const normalizeAddressCreationSettingsUpdate = (
     value: unknown
@@ -60,6 +61,7 @@ const get = async (c: Context<HonoCustomType>) => {
             fromBlockList: fromBlockList || [],
             noLimitSendAddressList: noLimitSendAddressList || [],
             emailRuleSettings: emailRuleSettings || {},
+            plusAddressingStatus: plusAddressingStatus(c.env, emailRuleSettings),
             addressCreationSettings: typeof addressCreationSettings.enableSubdomainMatch === 'boolean'
                 ? { enableSubdomainMatch: addressCreationSettings.enableSubdomainMatch }
                 : {},
@@ -79,7 +81,8 @@ const save = async (c: Context<HonoCustomType>) => {
         verifiedAddressList, fromBlockList, emailRuleSettings, addressCreationSettings,
         sendMailLimitConfig
     } = await c.req.json();
-    if (!blockList || !sendBlockList || !verifiedAddressList) {
+    if (!blockList || !sendBlockList || !verifiedAddressList
+        || (emailRuleSettings?.enablePlusAddressing != null && typeof emailRuleSettings.enablePlusAddressing !== 'boolean')) {
         return c.text(msgs.InvalidInputMsg, 400)
     }
     const addressCreationSettingsUpdate = normalizeAddressCreationSettingsUpdate(addressCreationSettings);
@@ -106,7 +109,12 @@ const save = async (c: Context<HonoCustomType>) => {
         await c.env.KV.put(CONSTANTS.EMAIL_KV_BLACK_LIST, JSON.stringify(fromBlockList))
     }
     await saveSetting(c, CONSTANTS.NO_LIMIT_SEND_ADDRESS_LIST_KEY, JSON.stringify(noLimitSendAddressList || []));
-    await saveSetting(c, CONSTANTS.EMAIL_RULE_SETTINGS_KEY, JSON.stringify(emailRuleSettings || {}));
+    const { enablePlusAddressing, ...nextRules } = emailRuleSettings || {};
+    const storedRules = enablePlusAddressing === undefined
+        ? await getJsonSetting<EmailRuleSettings>(c, CONSTANTS.EMAIL_RULE_SETTINGS_KEY) : null;
+    const override = enablePlusAddressing === undefined ? storedRules?.enablePlusAddressing : enablePlusAddressing;
+    if (typeof override === 'boolean') nextRules.enablePlusAddressing = override;
+    await saveSetting(c, CONSTANTS.EMAIL_RULE_SETTINGS_KEY, JSON.stringify(nextRules));
     if (addressCreationSettingsUpdate.shouldUpdate) {
         if (addressCreationSettingsUpdate.shouldClear) {
             await deleteSetting(c, CONSTANTS.ADDRESS_CREATION_SETTINGS_KEY);

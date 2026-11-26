@@ -2,7 +2,7 @@ import { Context } from 'hono';
 import { createAddressToken } from './address_auth';
 import { WorkerMailerOptions } from 'worker-mailer';
 
-import { getBooleanValue, getDomains, getStringArray, getIntValue, getUserRoles, getDefaultDomains, getAnotherWorkerList, hashPassword, getJsonObjectValue, getDomainMapValue, isDomainOrSubdomain, normalizeDomains, trimLower } from './utils';
+import { getBooleanValue, getDomains, getStringArray, getIntValue, getUserRoles, getDefaultDomains, getAnotherWorkerList, hashPassword, getJsonObjectValue, getDomainMapValue, isDomainOrSubdomain, normalizeAddressDomain, normalizeDomains, trimLower } from './utils';
 import { unbindTelegramByAddress } from './telegram_api/common';
 import { CONSTANTS } from './constants';
 import { AdminWebhookSettings, ExtractResult, RawMailRow, WebhookMail, WebhookSettings } from './models';
@@ -674,17 +674,50 @@ export const handleMailListQuery = async (
     if (offset == null || offset == undefined || offset < 0) return c.text(msgs.InvalidOffsetMsg, 400);
     const orderClause = orderBy || 'id desc';
     const summary = allowSummary && c.req.query('summary') === 'true';
+    const aliasMode = allowSummary ? c.req.query('alias') : undefined;
+    const aliasTag = allowSummary ? c.req.query('aliasTag') : undefined;
+    const tagList = allowSummary && c.req.query('aliasTags') === 'true';
+    const unread = allowSummary && c.req.query('unread') === 'true';
+    const columns = summary || tagList || aliasMode || aliasTag !== undefined || unread
+        ? await c.env.DB.prepare('PRAGMA table_info(raw_mails)').all<{ name: string }>() : undefined;
+    const names = new Set(columns?.results.map(column => column.name));
+    const scope = /^SELECT rm\.\*/.test(query) ? 'rm.' : '';
+    const conditions: string[] = [];
+    params = [...params];
+    if (unread) conditions.push(names.has('is_unread') ? `${scope}is_unread = 1` : '0');
+    if (tagList) {
+        if (!names.has('alias_tag')) return c.json({ results: [], count: 0 });
+        conditions.push(`${scope}alias_tag IS NOT NULL`);
+        const search = c.req.query('tagSearch')?.trim();
+        if (search) {
+            conditions.push(`instr(lower(${scope}alias_tag), lower(?)) > 0`);
+            params.push(search.slice(0, 64));
+        }
+    } else if (aliasTag !== undefined) {
+        if (aliasTag.length === 0 || aliasTag.length > 64) return c.text(msgs.InvalidInputMsg, 400);
+        conditions.push(names.has('alias_tag') ? `${scope}alias_tag = ?` : '0');
+        if (names.has('alias_tag')) params.push(aliasTag);
+    } else if (aliasMode === 'none' && names.has('alias_tag')) {
+        conditions.push(`${scope}alias_tag IS NULL`);
+    }
+    if (conditions.length) {
+        const suffix = `${/\bwhere\b/i.test(query) ? ' AND ' : ' WHERE '}${conditions.join(' AND ')}`;
+        query += suffix;
+        countQuery += suffix;
+    }
+    if (tagList) {
+        const tagQuery = query.replace(/^SELECT (?:rm\.)?\*/, `SELECT DISTINCT ${scope}alias_tag AS alias_tag`);
+        return handleListQuery(c, tagQuery, `SELECT count(*) AS count FROM (${tagQuery})`, params, limit, offset, 'alias_tag');
+    }
     let selection = query;
     if (summary) {
-        const { results: columns } = await c.env.DB.prepare('PRAGMA table_info(raw_mails)').all<{ name: string }>();
-        const names = new Set(columns.map(column => column.name));
-        const alias = /^SELECT rm\.\*/.test(query) ? 'rm.' : '';
-        const field = (name: string) => names.has(name) ? alias + name : `NULL AS ${name}`;
+        const field = (name: string) => names.has(name) ? scope + name : `NULL AS ${name}`;
         const legacyContent = (name: string) => names.has(name)
-            ? `CASE WHEN length(CAST(${alias}${name} AS BLOB)) <= 262144 THEN ${alias}${name} END AS ${name}`
+            ? `CASE WHEN length(CAST(${scope}${name} AS BLOB)) <= 262144 THEN ${scope}${name} END AS ${name}`
             : `NULL AS ${name}`;
         const projection = ['id', 'source', 'address', 'message_id', 'created_at', 'is_unread', 'storage_backend',
-            'subject', 'sender', 'preview', 'attachment_count', 'metadata'].map(field).concat(legacyContent('raw'), legacyContent('raw_blob'));
+            'subject', 'sender', 'preview', 'attachment_count', 'metadata', 'original_recipient', 'alias_tag']
+            .map(field).concat(legacyContent('raw'), legacyContent('raw_blob'));
         selection = query.replace(/^SELECT (?:rm\.)?\*/, `SELECT ${projection.join(', ')}`);
     }
     const resultsQuery = `${selection} order by ${orderClause} limit ? offset ?`;
@@ -748,10 +781,10 @@ export const getAllowDomains = async (c: Context<HonoCustomType>): Promise<strin
     return getDefaultDomains(c);
 }
 
-export function filterWebhooks(settings: WebhookSettings[], parsedEmail: ParsedEmailContext['parsedEmail'], to: string): WebhookSettings[] {
+export function filterWebhooks(settings: WebhookSettings[], parsedEmail: ParsedEmailContext['parsedEmail'], to: string, recipient?: ParsedEmailContext['recipient']): WebhookSettings[] {
     return settings.filter(webhook => {
         try {
-            return compileWebhookFilter(webhook.filter)(parsedEmail, to);
+            return compileWebhookFilter(webhook.filter)(parsedEmail, to, recipient);
         } catch (error) {
             console.error('Invalid webhook filter', error);
             return false;
@@ -762,15 +795,16 @@ export function filterWebhooks(settings: WebhookSettings[], parsedEmail: ParsedE
 export function compileWebhookFilter(filter: unknown): (
     parsedEmail: ParsedEmailContext['parsedEmail'],
     to: string,
+    recipient?: ParsedEmailContext['recipient'],
 ) => boolean {
     if (filter === undefined || filter === null) return () => true;
     const headerFields = new Set<string>();
     const match = compileFilter(filter, field => {
         if (field.startsWith('header.')) headerFields.add(field);
-        return ['from', 'to', 'subject', 'text', 'html'].includes(field)
+        return ['from', 'to', 'subject', 'text', 'html', 'mailbox_address', 'original_recipient', 'alias_tag'].includes(field)
             || /^header\.[a-zA-Z0-9!#$%&'*+.^_`|~-]+$/.test(field);
     });
-    return (parsedEmail, to) => {
+    return (parsedEmail, to, recipient) => {
         if (!parsedEmail) throw new Error('Email parsing unavailable for filter');
         const headers = new Map<string, string[]>();
         for (const field of headerFields) headers.set(field.slice(7).toLowerCase(), []);
@@ -783,6 +817,9 @@ export function compileWebhookFilter(filter: unknown): (
             subject: parsedEmail.subject,
             text: parsedEmail.text,
             html: parsedEmail.html,
+            mailbox_address: recipient?.mailbox_address ?? to,
+            original_recipient: recipient?.original_recipient ?? to,
+            alias_tag: recipient?.alias_tag ?? [],
         };
         for (const field of headerFields) {
             values[field] = headers.get(field.slice(7).toLowerCase()) || [];
@@ -842,7 +879,9 @@ export async function triggerWebhook(
         return
     }
     const parsedEmail = await commonParseMail(parsedEmailContext);
-    const matchingWebhooks = filterWebhooks(webhookList, parsedEmail, address);
+    const recipient = parsedEmailContext.recipient;
+    const originalAddress = recipient?.is_plus_alias ? normalizeAddressDomain(recipient.original_recipient) : address;
+    const matchingWebhooks = filterWebhooks(webhookList, parsedEmail, originalAddress, recipient);
     if (matchingWebhooks.length === 0) return;
     const mailRow = storedMailId ? await c.env.DB.prepare(
         `SELECT id, address, created_at FROM raw_mails WHERE id = ? AND address = ?`
@@ -860,7 +899,8 @@ export async function triggerWebhook(
         url: c.env.FRONTEND_URL ? `${c.env.FRONTEND_URL}?mail_id=${mailId}` : "",
         attachments,
         from: parsedEmail?.sender || "",
-        to: address,
+        to: originalAddress,
+        ...recipient,
         subject: parsedEmail?.subject || "",
         raw: parsedEmailContext.rawEmail || "",
         parsedText: parsedEmail?.text || "",

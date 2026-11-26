@@ -17,7 +17,10 @@ export const MESSAGE_REGISTRY = {
     "filter": { "zh": "过滤条件", "en": "Filter" },
     "filterHelp": { "zh": "可输入 header.List-ID 等字段。文本默认忽略大小写；正则使用 JavaScript 语法，flags 可选 i、m、s。", "en": "Custom headers: e.g. header.List-ID. Text ignores case by default; regex uses JavaScript syntax with optional i, m, s flags." },
     "filter_from": { "zh": "发件人", "en": "Sender" },
-    "filter_to": { "zh": "实际收件邮箱", "en": "Delivery address" },
+    "filter_to": { "zh": "信封收件地址", "en": "Envelope recipient" },
+    "filter_mailbox_address": { "zh": "归属邮箱", "en": "Mailbox" },
+    "filter_original_recipient": { "zh": "原始收件地址", "en": "Original recipient" },
+    "filter_alias_tag": { "zh": "别名标签", "en": "Alias tag" },
     "filter_subject": { "zh": "主题", "en": "Subject" },
     "filter_text": { "zh": "纯文本正文", "en": "Plain text" },
     "filter_html": { "zh": "HTML 正文", "en": "HTML body" },
@@ -202,7 +205,27 @@ export const MESSAGE_REGISTRY = {
       "zh": "订阅链接"
     }
   },
+  "components.PlusAlias": {
+    "enabled": { "en": "Plus email aliases", "zh": "Plus 邮箱别名" },
+    "example": { "en": "Mail sent to {address} arrives in this inbox.", "zh": "发送到 {address} 的邮件会进入此收件箱。" },
+    "tag": { "en": "Enter an alias tag", "zh": "输入别名标签" },
+    "invalid": { "en": "Enter a valid email tag.", "zh": "请输入有效的邮箱标签。" },
+    "copy": { "en": "Copy alias", "zh": "复制别名" },
+    "copied": { "en": "Alias copied", "zh": "已复制别名" },
+    "copyFailed": { "en": "Could not copy the alias", "zh": "复制别名失败" },
+  },
+  "components.AliasFilter": {
+    "all": { "en": "All mail", "zh": "全部邮件" },
+    "none": { "en": "Without an alias", "zh": "无别名" },
+    "filter": { "en": "Filter by alias tag", "zh": "按别名标签筛选" },
+    "search": { "en": "Search tags in this mailbox", "zh": "搜索此邮箱的标签" },
+    "unread": { "en": "Unread only", "zh": "仅未读" },
+    "failed": { "en": "Could not load alias tags", "zh": "无法加载别名标签" },
+  },
   "components.MailContentRenderer": {
+    "mailbox": { "en": "Mailbox", "zh": "归属邮箱" },
+    "originalRecipient": { "en": "Original recipient", "zh": "原始收件地址" },
+    "aliasTag": { "en": "Alias tag", "zh": "别名标签" },
     "mailParseError": { "en": "Could not parse this email. Download the original to inspect it.", "zh": "无法解析此邮件，可下载原始邮件查看。" },
     "attachmentDataMissing": { "en": "Attachment data is unavailable", "zh": "附件数据缺失" },
     "from": {
@@ -2796,6 +2819,12 @@ export const MESSAGE_REGISTRY = {
     }
   },
   "views.admin.AccountSettings": {
+    "plusAddressing": { "en": "Plus email aliases", "zh": "Plus 邮箱别名" },
+    "plusAddressingHelp": { "en": "Route local+tag recipients to an existing local mailbox on the same domain.", "zh": "将 local+tag 的来信投递到同一域名下已有的 local 邮箱。" },
+    "plusActive": { "en": "Enabled", "zh": "已启用" },
+    "plusInactive": { "en": "Disabled", "zh": "已停用" },
+    "plusLocked": { "en": "The Worker environment forces this feature off.", "zh": "Worker 环境变量已强制停用此功能。" },
+    "plusFollowEnv": { "en": "Use Worker environment", "zh": "遵循 Worker 环境变量" },
     "actions": {
       "en": "Actions",
       "zh": "操作"

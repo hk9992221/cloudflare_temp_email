@@ -1,5 +1,6 @@
 import { decodeMailBytes, resolveRawEmail as resolveD1Raw } from '../../gzip';
 import { RawMailRow } from '../../models';
+import { recipientMetadata } from '../../utils/recipient_resolver';
 import { MailStorageError, MAX_RAW_MAIL_BYTES, readBounded, readObject, requireBucket } from './r2';
 
 export async function readLegacyMailBytes(row: RawMailRow, limit = MAX_RAW_MAIL_BYTES): Promise<ArrayBuffer> {
@@ -28,16 +29,17 @@ export async function resolveRawEmail(env: Bindings, row: RawMailRow): Promise<s
 }
 
 export async function rawMailParseContext(env: Bindings, row: RawMailRow): Promise<ParsedEmailContext> {
-    if (row.storage_backend !== 'r2' && row.raw_blob == null) return { rawEmail: row.raw ?? '' };
+    const recipient = recipientMetadata(row.address ?? '', row.original_recipient ?? row.address ?? '', row.alias_tag ?? null);
+    if (row.storage_backend !== 'r2' && row.raw_blob == null) return { rawEmail: row.raw ?? '', recipient };
     const rawBytes = await readRawMailBytes(env, row);
-    return { rawEmail: decodeMailBytes(rawBytes), rawBytes };
+    return { rawEmail: decodeMailBytes(rawBytes), rawBytes, recipient };
 }
 
 export function publicMailRow(row: RawMailRow) {
     const { raw_blob: _blob, storage_backend: _backend, r2_key: _key, raw_encoding: _encoding,
         raw_size: _size, stored_size: _stored, content_sha256: _hash, subject: _subject, sender: _sender,
         preview: _preview, attachment_count: _attachments, ...publicRow } = row;
-    return publicRow;
+    return { ...publicRow, original_recipient: row.original_recipient ?? row.address, alias_tag: row.alias_tag ?? null };
 }
 
 export async function resolveRawEmailRow(env: Bindings, row: RawMailRow) {

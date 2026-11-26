@@ -253,3 +253,21 @@ Admin 或 `SUBDOMAIN_FORWARD_ADDRESS_LIST` 规则将转发目标设为 `DOMAINS`
 > #]
 > #
 > ```
+
+## Plus 邮箱别名
+
+Plus 别名在已有邮箱的名称后加上 `+标签`。例如，发送到 `invoice+GitHub+CI@mail.example.com` 的邮件会进入同域名下的 `invoice@mail.example.com`。如果完整地址已独立注册，则优先投递给完整地址。标签保留大小写，多个 `+` 也会保留。
+
+| 配置 | 作用 |
+| --- | --- |
+| Worker 未配置 `ENABLE_PLUS_ADDRESSING` | 默认关闭，管理员可以在账户设置启用 |
+| `ENABLE_PLUS_ADDRESSING = true` | 默认开启，管理员可以在账户设置停用 |
+| `ENABLE_PLUS_ADDRESSING = false` | 强制关闭，后台显示锁定 |
+
+已有部署先备份 D1，再升级数据库到 `v0.0.14`。发布新版 Worker 后，可从 **管理后台 → 快速设置 → 数据库 → 升级数据库 Schema** 执行可重复检查的迁移。已经使用 `v0.0.13` 的部署也可以在发布前一次性应用 `db/2026-11-26-plus-addressing.sql`。再发布 Webmail 和 Telegram Mini App。Cloudflare Email Routing 需要为相关域名启用子地址支持，使 Worker 收到完整的信封地址。
+
+Webmail 地址栏提供别名生成和复制入口，收件箱可以按标签、无别名及未读状态筛选。历史邮件继续按原有邮箱读取。关闭此功能会停止新邮件的动态解析，已接收邮件和标签仍可访问。
+
+邮箱列表与详情增加 `original_recipient` 和 `alias_tag`。在现有邮箱授权范围内，列表可用 `aliasTag=<标签>`、`alias=none` 和 `unread=true` 筛选。以 `aliasTags=true` 请求标签选项，可同时使用 `tagSearch`、`limit` 与 `offset`。调用方应进行 URL 编码，例如标签中的 `+` 编码为 `%2B`。
+
+Webhook 继续使用 `to` 表示邮件的 SMTP 信封收件人，`mailbox_address` 表示归属邮箱。模板还可使用 `original_recipient`、`alias_tag` 和 `is_plus_alias`。站内转发规则仍按信封执行过滤，例如对基础邮箱使用 `^invoice@mail\.example\.com$` 的完整地址匹配会覆盖它的动态别名。其它过滤条件仍对原始信封生效。

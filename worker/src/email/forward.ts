@@ -49,6 +49,18 @@ function matchAddressPatterns(
     }
 }
 
+// Match the delivered envelope first. An anchored mailbox address explicitly
+// opts into its aliases without re-evaluating exclusion rules on another address.
+function matchesRecipientRule(
+    envelope: string, mailbox: string | undefined, patterns: string[] | null | undefined, mode: 'any' | 'all' | undefined
+) {
+    if (!mailbox || !patterns?.length) return matchAddressPatterns(envelope, patterns, mode);
+    const escapedMailbox = mailbox.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = (pattern: string) => safeRegexTest(pattern, envelope)
+        || pattern.toLowerCase() === `^${escapedMailbox.toLowerCase()}$`;
+    return mode === 'all' ? patterns.every(match) : patterns.some(match);
+}
+
 async function forwardToAddress(
     message: ForwardableEmailMessage,
     env: Bindings,
@@ -96,16 +108,22 @@ async function forwardToAddress(
  */
 async function forwardToGlobalAddresses(
     message: ForwardableEmailMessage,
-    env: Bindings
-): Promise<void> {
+    env: Bindings,
+    mailboxAddress?: string,
+): Promise<Map<string, boolean>> {
+    const deliveries = new Map<string, boolean>();
     try {
         const forwardAddressList = getEnvStringList(env.FORWARD_ADDRESS_LIST);
         for (const forwardAddress of forwardAddressList) {
+            const target = normalizeAddressDomain(forwardAddress);
+            if (mailboxAddress && (target === mailboxAddress || target === normalizeAddressDomain(message.to) || deliveries.has(target))) continue;
             await message.forward(forwardAddress);
+            if (mailboxAddress) deliveries.set(target, true);
         }
     } catch (error) {
         console.error("forward email error", error);
     }
+    return deliveries;
 }
 
 /**
@@ -115,7 +133,10 @@ async function forwardByRules(
     message: ForwardableEmailMessage,
     env: Bindings,
     rawEmail: string | ArrayBuffer,
-    receiveMail: ReceiveMail
+    receiveMail: ReceiveMail,
+    mailboxAddress?: string,
+    savedRules?: EmailRuleSettings | null,
+    deliveries = new Map<string, boolean>(),
 ): Promise<{ deleteOriginal: boolean }> {
     const deleteOriginalResults: boolean[] = [];
     try {
@@ -125,10 +146,10 @@ async function forwardByRules(
         ) || [];
 
         // 获取数据库配置
-        const emailRuleSettings = await getJsonSetting<EmailRuleSettings>(
+        const emailRuleSettings = savedRules === undefined ? await getJsonSetting<EmailRuleSettings>(
             { env: env } as Context<HonoCustomType>,
             CONSTANTS.EMAIL_RULE_SETTINGS_KEY
-        );
+        ) : savedRules;
 
         // 合并两个配置，env 里的配置优先级更高
         const allRules = [
@@ -137,12 +158,21 @@ async function forwardByRules(
         ];
 
         const messageDomain = getMailDomain(message.to);
+        const deliver = async (target: string) => {
+            const normalized = normalizeAddressDomain(target);
+            if (mailboxAddress && normalized === mailboxAddress) return false;
+            if (!mailboxAddress) return forwardToAddress(message, env, rawEmail, target, receiveMail);
+            if (!deliveries.has(normalized)) {
+                deliveries.set(normalized, await forwardToAddress(message, env, rawEmail, target, receiveMail));
+            }
+            return deliveries.get(normalized) === true;
+        };
         for (const rule of allRules) {
             // 检查来源地址是否匹配正则
             if (!matchAddressPatterns(message.from, rule.sourcePatterns, rule.sourceMatchMode)) {
                 continue;
             }
-            if (!matchAddressPatterns(message.to, rule.recipientPatterns, rule.recipientMatchMode)) {
+            if (!matchesRecipientRule(message.to, mailboxAddress, rule.recipientPatterns, rule.recipientMatchMode)) {
                 continue;
             }
 
@@ -152,7 +182,7 @@ async function forwardByRules(
                 const normalizedDomains = rule.domains.map(normalizeDomain);
                 if (normalizedDomains.some(domain => domain.length === 0)) {
                     if (rule.forward) {
-                        const success = await forwardToAddress(message, env, rawEmail, rule.forward, receiveMail);
+                        const success = await deliver(rule.forward);
                         deleteOriginalResults.push(success && rule.deleteOriginal === true);
                     }
                     continue;
@@ -160,14 +190,14 @@ async function forwardByRules(
 
                 for (const normalizedDomain of normalizedDomains) {
                     if (isDomainOrSubdomain(messageDomain, normalizedDomain) && rule.forward) {
-                        const success = await forwardToAddress(message, env, rawEmail, rule.forward, receiveMail);
+                        const success = await deliver(rule.forward);
                         deleteOriginalResults.push(success && rule.deleteOriginal === true);
                     }
                 }
             } else {
                 // 域名为空，转发所有邮件
                 if (rule.forward) {
-                    const success = await forwardToAddress(message, env, rawEmail, rule.forward, receiveMail);
+                    const success = await deliver(rule.forward);
                     deleteOriginalResults.push(success && rule.deleteOriginal === true);
                 }
             }
@@ -186,13 +216,15 @@ async function forwardEmail(
     message: ForwardableEmailMessage,
     env: Bindings,
     rawEmail: string | ArrayBuffer,
-    receiveMail: ReceiveMail
+    receiveMail: ReceiveMail,
+    mailboxAddress?: string,
+    rules?: EmailRuleSettings | null,
 ): Promise<{ deleteOriginal: boolean }> {
     // 全局转发
-    await forwardToGlobalAddresses(message, env);
+    const deliveries = await forwardToGlobalAddresses(message, env, mailboxAddress);
 
     // 规则转发
-    const ruleResult = await forwardByRules(message, env, rawEmail, receiveMail);
+    const ruleResult = await forwardByRules(message, env, rawEmail, receiveMail, mailboxAddress, rules, deliveries);
     return {
         deleteOriginal: ruleResult.deleteOriginal,
     };

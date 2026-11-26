@@ -20,6 +20,17 @@ const emailRuleSettings = ref({
     blockReceiveUnknowAddressEmail: false,
     emailForwardingList: []
 })
+const plusAddressingStatus = ref({ enabled: false, locked: false })
+const plusAddressingOptions = computed(() => [
+    { label: t('plusFollowEnv'), value: 'env' },
+    { label: t('plusActive'), value: 'on' },
+    { label: t('plusInactive'), value: 'off' }
+])
+const plusAddressingMode = computed({
+    get: () => emailRuleSettings.value.enablePlusAddressing == null
+        ? 'env' : emailRuleSettings.value.enablePlusAddressing ? 'on' : 'off',
+    set: mode => { emailRuleSettings.value.enablePlusAddressing = mode === 'env' ? null : mode === 'on' }
+})
 const ADDRESS_CREATION_SUBDOMAIN_MATCH_MODE = {
     FOLLOW_ENV: 'follow_env',
     FORCE_ENABLE: 'force_enable',
@@ -314,9 +325,11 @@ const fetchData = async ({ suppressErrorMessage = false } = {}) => {
         fromBlockList.value = res.fromBlockList || []
         noLimitSendAddressList.value = res.noLimitSendAddressList || []
         emailRuleSettings.value = {
+            enablePlusAddressing: res.emailRuleSettings?.enablePlusAddressing,
             blockReceiveUnknowAddressEmail: res.emailRuleSettings?.blockReceiveUnknowAddressEmail || false,
             emailForwardingList: res.emailRuleSettings?.emailForwardingList || []
         }
+        plusAddressingStatus.value = res.plusAddressingStatus || { enabled: false, locked: false }
         addressCreationSubdomainMatchStatus.value = {
             envConfigured: !!res.addressCreationSubdomainMatchStatus?.envConfigured,
             envEnabled: !!res.addressCreationSubdomainMatchStatus?.envEnabled,
@@ -481,6 +494,15 @@ onMounted(async () => {
             </n-form-item-row>
             <n-form-item-row :label="t('block_receive_unknow_address_email')">
                 <n-switch v-model:value="emailRuleSettings.blockReceiveUnknowAddressEmail" :round="false" />
+            </n-form-item-row>
+            <n-form-item-row :label="t('plusAddressing')">
+                <n-space vertical>
+                    <n-select v-model:value="plusAddressingMode" :options="plusAddressingOptions"
+                        :disabled="plusAddressingStatus.locked" />
+                    <n-text depth="3">{{ t('plusAddressingHelp') }}</n-text>
+                    <n-text depth="3">{{ t(plusAddressingStatus.enabled ? 'plusActive' : 'plusInactive') }}</n-text>
+                    <n-alert v-if="plusAddressingStatus.locked" type="warning">{{ t('plusLocked') }}</n-alert>
+                </n-space>
             </n-form-item-row>
             <n-form-item-row :label="t('create_address_subdomain_match')">
                 <n-flex vertical style="width: 100%;">
