@@ -84,6 +84,25 @@ class WorkerMailSettingsTest(unittest.TestCase):
         self.assertEqual(config["vars"]["MAIL_STORAGE_BACKEND"], "d1")
         self.assertEqual(config["r2_buckets"], [{"binding": "MAIL_STORAGE", "bucket_name": "mail"}])
 
+    def test_live_domains_preserve_order_default_and_legacy_text(self):
+        domains = ["mail.example.net", "inbox.example.net"]
+        config = {"vars": {"DOMAINS": ["old.example.net"], "DEFAULT_DOMAINS": ["old.example.net"],
+                           "CREATE_ADDRESS_DEFAULT_DOMAIN_FIRST": False}}
+        settings.preserve_mail_settings(config, [
+            {"name": "DOMAINS", "type": "json", "json": domains},
+            {"name": "DEFAULT_DOMAINS", "type": "plain_text", "text": '["mail.example.net","inbox.example.net"]'},
+            {"name": "CREATE_ADDRESS_DEFAULT_DOMAIN_FIRST", "type": "json", "json": True},
+        ])
+        self.assertEqual(config["vars"], {
+            "DOMAINS": domains,
+            "DEFAULT_DOMAINS": '["mail.example.net","inbox.example.net"]',
+            "CREATE_ADDRESS_DEFAULT_DOMAIN_FIRST": True,
+        })
+
+    def test_live_domain_array_rejects_non_strings(self):
+        with self.assertRaisesRegex(settings.ConfigurationError, "array of domains"):
+            settings.preserve_mail_settings({}, [{"name": "DOMAINS", "type": "json", "json": [False]}])
+
     def test_initial_deployment_uses_toml_binding(self):
         config = {
             "vars": {"MAIL_STORAGE_BACKEND": "r2"},

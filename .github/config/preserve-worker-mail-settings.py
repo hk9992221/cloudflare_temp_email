@@ -15,7 +15,10 @@ MAIL_VARS = (
     "ENABLE_TG_PUSH_ATTACHMENT",
     "ENABLE_AI_EMAIL_EXTRACT",
     "AI_EXTRACT_MODEL",
+    "CREATE_ADDRESS_DEFAULT_DOMAIN_FIRST",
 )
+
+DOMAIN_LIST_VARS = ("DOMAINS", "DEFAULT_DOMAINS")
 
 
 class ConfigurationError(Exception):
@@ -86,12 +89,16 @@ def preserve_mail_settings(config, bindings):
         config["r2_buckets"] = [*other_buckets, r2]
 
     variables = config.setdefault("vars", {})
-    for name in MAIL_VARS:
+    for name in (*MAIL_VARS, *DOMAIN_LIST_VARS):
         if name not in live:
             continue
         item = live[name]
         value = item.get("text") if item.get("type") == "plain_text" else item.get("json")
-        if not isinstance(value, (str, bool)):
+        if name in DOMAIN_LIST_VARS:
+            if not (isinstance(value, str) or
+                    isinstance(value, list) and all(isinstance(domain, str) for domain in value)):
+                raise ConfigurationError(f"The live {name} setting must be text or an array of domains.")
+        elif not isinstance(value, (str, bool)):
             raise ConfigurationError(f"The live {name} setting must be text or a boolean.")
         variables[name] = value
 

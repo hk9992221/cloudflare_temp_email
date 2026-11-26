@@ -20,6 +20,7 @@
 - fix: |Mail Attachments| Display the downloaded byte size, open original EML lazily, and preserve Telegram attachment bytes with a failure notice.
 
 - fix: |Deployment| Preserve the live Cloudflare mail storage binding and settings during backend Actions deployments.
+- fix: |Deployment| Preserve the live Worker's address creation domains, their order, and default selection behavior.
 
 ### Improvements
 
